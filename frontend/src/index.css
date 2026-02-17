@@ -1,0 +1,49 @@
+:root {
+  --bg: #0d0f14;
+  --surface: #161a22;
+  --surface2: #1e232e;
+  --text: #e6e9ef;
+  --textMuted: #8b92a0;
+  --accent: #7dcfff;
+  --accentDim: #5fa8d6;
+  --success: #9fec9a;
+  --warning: #f0c674;
+  --danger: #e06c75;
+  --radius: 12px;
+  --font: 'DM Sans', system-ui, sans-serif;
+  --fontMono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button {
+  font-family: var(--font);
+  cursor: pointer;
+}
+
+input, textarea {
+  font-family: var(--font);
+}
+
+.emotion-neutral { color: var(--textMuted); }
+.emotion-pleased { color: var(--success); }
+.emotion-funny { color: var(--warning); }
+.emotion-fear { color: var(--danger); }
+.emotion-sad { color: var(--accentDim); }

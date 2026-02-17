@@ -1,0 +1,24 @@
+# Copy-paste these into your terminal (run from repo root = folder that contains bsc-vcm, backend, frontend)
+# Stage 1 uses emoji + keyword expansion (e.g. lol -> funny, 😭 -> sad); same logic in backend/text_utils.py.
+
+# ---------- STEP 1–3: Train Stage 1, build Stage 2 dataset, train Stage 2 ----------
+# Paste the block below into ONE terminal. Takes ~3–5 min Stage 1, ~1 min Stage 2 build (YouTube API), ~10 s Stage 2 train.
+
+pip install tqdm -q
+python bsc-vcm/scripts/train_vcm_tuned.py
+python bsc-vcm/scripts/build_stage2_dataset.py
+python bsc-vcm/scripts/train_stage2.py
+
+
+# ---------- STEP 4a: Backend (paste in FIRST terminal) ----------
+cd backend
+pip install -r requirements.txt -q
+python -m uvicorn main:app --reload --port 8000
+
+
+# ---------- STEP 4b: Frontend (paste in a SECOND terminal) ----------
+cd frontend
+npm install
+npm run dev
+
+# Then open http://localhost:3000 and test with a YouTube URL.

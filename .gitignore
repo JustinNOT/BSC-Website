@@ -1,2 +1,10 @@
 # Only track bsc-vcm; ignore this nested folder
 Fourth Stage - Redemption/
+
+# Web app
+backend/models/*.joblib
+frontend/node_modules
+.env
+.env.local
+__pycache__/
+*.pyc
