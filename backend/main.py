@@ -12,14 +12,18 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 import joblib
 import pandas as pd
 from googleapiclient.discovery import build
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from text_utils import expand_emojis_for_emotion
 
@@ -31,13 +35,53 @@ STORED_DIR = BASE_DIR / "stored_videos"
 # Default sentiment labels (0-4)
 SENTIMENT_LABELS = {"0": "neutral", "1": "pleased", "2": "funny", "3": "fear", "4": "sad"}
 
+
+def _client_ip(request: Request) -> str:
+    """Client IP for rate limiting; respects X-Forwarded-For when behind a proxy."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return get_remote_address(request) if request.client else "unknown"
+
+
+# Rate limits (per IP); override via env if needed
+RATE_LIMIT_ANALYZE = os.environ.get("RATE_LIMIT_ANALYZE", "20/minute")
+RATE_LIMIT_STORE = os.environ.get("RATE_LIMIT_STORE", "30/minute")
+RATE_LIMIT_GENERAL = os.environ.get("RATE_LIMIT_GENERAL", "60/minute")
+
+limiter = Limiter(key_func=_client_ip)
+
 app = FastAPI(
     title="BSC VCM API",
     description="Viewers Comments Model: analyze YouTube video comments and predict emotions.",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add baseline security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS: set CORS_ORIGINS to comma-separated list (e.g. https://yourdomain.com); leave unset for "*"
+_cors_origins = os.environ.get("CORS_ORIGINS", "").strip()
+if _cors_origins and _cors_origins.lower() != "*":
+    _origins_list = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+else:
+    _origins_list = ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -353,7 +397,7 @@ def predict_comments_and_video_with_progress(video_id: str, max_comments: int = 
 
 # --- API ---
 class AnalyzeRequest(BaseModel):
-    youtube_url: str
+    youtube_url: str = Field(..., max_length=500)
 
 
 # Password required to store videos (researchers must enter this on the site). Set STORE_PASSWORD in .env to override.
@@ -422,7 +466,8 @@ def _stream_analyze_gen(video_id: str, title: str | None):
 
 
 @app.post("/api/analyze")
-def analyze(request: AnalyzeRequest):
+@limiter.limit(RATE_LIMIT_ANALYZE)
+def analyze(http_request: Request, request: AnalyzeRequest):
     video_id = extract_video_id(request.youtube_url)
     if not video_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube URL or video ID")
@@ -446,7 +491,8 @@ def analyze(request: AnalyzeRequest):
 
 
 @app.post("/api/store")
-def store_video(request: StoreRequest):
+@limiter.limit(RATE_LIMIT_STORE)
+def store_video(http_request: Request, request: StoreRequest):
     """Store the current video's summary under a folder named by its emotion.
 
     Requires correct store_password. Files are written to
@@ -494,7 +540,8 @@ def store_video(request: StoreRequest):
 
 
 @app.get("/api/stored")
-def list_stored():
+@limiter.limit(RATE_LIMIT_GENERAL)
+def list_stored(http_request: Request):
     """List all stored videos grouped by emotion category.
     Returns { "neutral": [ { video_id, title, stored_at_utc } ], "sad": [...], ... }.
     """
@@ -528,7 +575,8 @@ class DeleteStoredRequest(BaseModel):
 
 
 @app.post("/api/stored/delete")
-def delete_stored(request: DeleteStoredRequest):
+@limiter.limit(RATE_LIMIT_GENERAL)
+def delete_stored(http_request: Request, request: DeleteStoredRequest):
     """Delete one stored video. Requires delete password."""
     if request.delete_password != DELETE_PASSWORD:
         raise HTTPException(status_code=401, detail="Incorrect delete password")
@@ -561,7 +609,8 @@ def delete_stored(request: DeleteStoredRequest):
 
 
 @app.post("/api/analyze-stream")
-def analyze_stream(request: AnalyzeRequest):
+@limiter.limit(RATE_LIMIT_ANALYZE)
+def analyze_stream(http_request: Request, request: AnalyzeRequest):
     video_id = extract_video_id(request.youtube_url)
     if not video_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube URL or video ID")

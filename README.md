@@ -67,7 +67,7 @@ npm run dev
 
 Open **http://localhost:3000**. Paste a YouTube URL and click **Analyze** to see comments, emotion percentages, and the final video emotion.
 
-**To publish the site for researchers:** see **RESEARCHER_DEPLOY.md** (short checklist of only what you need to do).
+**To publish the site live:** see **LAUNCH.md** for step-by-step instructions (everything in code is ready; that file lists only what you do externally).
 
 ## API
 

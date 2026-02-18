@@ -92,7 +92,12 @@ After this, researchers can open `https://your-domain.com`, paste a YouTube URL,
 
 ---
 
-### 6. Optional: change the store password
+### 6. Optional: security and CORS
+
+- Set `CORS_ORIGINS=https://your-domain.com` in `backend/.env` so only your frontend can call the API (recommended when live).
+- Rate limiting is on by default (20 analyze requests per IP per minute, 30 store per minute). To change, set `RATE_LIMIT_ANALYZE`, `RATE_LIMIT_STORE`, or `RATE_LIMIT_GENERAL` in `.env` (e.g. `30/minute`).
+
+### 7. Optional: change the store password
 
 Researchers must enter a password to use “Store this video.” The default is in the code. To override without editing code, set in `backend/.env`:
 
@@ -111,6 +116,7 @@ Share this password only with researchers who should be able to store videos.
 | Build frontend | From repo root: `scripts/build_production.bat` (Windows) or `bash scripts/build_production.sh` (Linux/macOS) |
 | Run backend | From repo root: `scripts/run_backend.bat` or `bash scripts/run_backend.sh` (after setting `YOUTUBE_API_KEY` in `backend/.env`) |
 | Nginx config | `deploy/nginx.conf.example` |
+| CORS / rate limits | `backend/.env.example` (CORS_ORIGINS, RATE_LIMIT_*) |
 | systemd unit | `deploy/bsc-vcm-backend.service.example` |
 | Env examples | `backend/.env.example`, `frontend/.env.example` |
 
