@@ -467,8 +467,8 @@ def _stream_analyze_gen(video_id: str, title: str | None):
 
 @app.post("/api/analyze")
 @limiter.limit(RATE_LIMIT_ANALYZE)
-def analyze(http_request: Request, request: AnalyzeRequest):
-    video_id = extract_video_id(request.youtube_url)
+def analyze(request: Request, body: AnalyzeRequest):
+    video_id = extract_video_id(body.youtube_url)
     if not video_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube URL or video ID")
     title = get_video_title(video_id)
@@ -492,40 +492,40 @@ def analyze(http_request: Request, request: AnalyzeRequest):
 
 @app.post("/api/store")
 @limiter.limit(RATE_LIMIT_STORE)
-def store_video(http_request: Request, request: StoreRequest):
+def store_video(request: Request, body: StoreRequest):
     """Store the current video's summary under a folder named by its emotion.
 
     Requires correct store_password. Files are written to
     backend/stored_videos/<emotion>/*.json so researchers can browse by emotion.
     """
-    if request.store_password != STORE_PASSWORD:
+    if body.store_password != STORE_PASSWORD:
         raise HTTPException(status_code=401, detail="Incorrect password")
-    if not request.video_id:
+    if not body.video_id:
         raise HTTPException(status_code=400, detail="video_id is required")
 
     # Use chosen emotion folder, or default to 1st dominant.
-    main_label = (request.store_under_emotion or request.stage2_emotion or request.video_emotion or "unknown").strip()
+    main_label = (body.store_under_emotion or body.stage2_emotion or body.video_emotion or "unknown").strip()
     if not main_label:
         main_label = "unknown"
     folder = STORED_DIR / _safe_emotion_folder(main_label)
     folder.mkdir(parents=True, exist_ok=True)
 
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    filename = f"{request.video_id}_{ts}.json"
+    filename = f"{body.video_id}_{ts}.json"
     path = folder / filename
 
     payload = {
         "stored_at_utc": ts,
-        "video_id": request.video_id,
-        "title": request.title or "",
-        "video_emotion": request.video_emotion,
-        "video_emotion_code": request.video_emotion_code,
-        "stage2_emotion": request.stage2_emotion,
-        "stage2_emotion_code": request.stage2_emotion_code,
-        "stage2_emotion_2": request.stage2_emotion_2,
-        "stage2_emotion_code_2": request.stage2_emotion_code_2,
-        "emotion_percentages": request.emotion_percentages,
-        "comment_count": request.comment_count,
+        "video_id": body.video_id,
+        "title": body.title or "",
+        "video_emotion": body.video_emotion,
+        "video_emotion_code": body.video_emotion_code,
+        "stage2_emotion": body.stage2_emotion,
+        "stage2_emotion_code": body.stage2_emotion_code,
+        "stage2_emotion_2": body.stage2_emotion_2,
+        "stage2_emotion_code_2": body.stage2_emotion_code_2,
+        "emotion_percentages": body.emotion_percentages,
+        "comment_count": body.comment_count,
     }
 
     with path.open("w", encoding="utf-8") as f:
@@ -541,7 +541,7 @@ def store_video(http_request: Request, request: StoreRequest):
 
 @app.get("/api/stored")
 @limiter.limit(RATE_LIMIT_GENERAL)
-def list_stored(http_request: Request):
+def list_stored(request: Request):
     """List all stored videos grouped by emotion category.
     Returns { "neutral": [ { video_id, title, stored_at_utc } ], "sad": [...], ... }.
     """
@@ -576,12 +576,12 @@ class DeleteStoredRequest(BaseModel):
 
 @app.post("/api/stored/delete")
 @limiter.limit(RATE_LIMIT_GENERAL)
-def delete_stored(http_request: Request, request: DeleteStoredRequest):
+def delete_stored(request: Request, body: DeleteStoredRequest):
     """Delete one stored video. Requires delete password."""
-    if request.delete_password != DELETE_PASSWORD:
+    if body.delete_password != DELETE_PASSWORD:
         raise HTTPException(status_code=401, detail="Incorrect delete password")
-    video_id = str(request.video_id or "").strip()
-    stored_at_utc = str(request.stored_at_utc or "").strip()
+    video_id = str(body.video_id or "").strip()
+    stored_at_utc = str(body.stored_at_utc or "").strip()
     if not video_id or not stored_at_utc:
         raise HTTPException(status_code=400, detail="video_id and stored_at_utc required")
     # Filename is always video_id + _ + stored_at_utc + .json
@@ -610,8 +610,8 @@ def delete_stored(http_request: Request, request: DeleteStoredRequest):
 
 @app.post("/api/analyze-stream")
 @limiter.limit(RATE_LIMIT_ANALYZE)
-def analyze_stream(http_request: Request, request: AnalyzeRequest):
-    video_id = extract_video_id(request.youtube_url)
+def analyze_stream(request: Request, body: AnalyzeRequest):
+    video_id = extract_video_id(body.youtube_url)
     if not video_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube URL or video ID")
 
