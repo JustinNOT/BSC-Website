@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import './App.css'
 
-const API_BASE = import.meta.env.DEV ? '' : '' // proxy in dev
+// In dev we use Vite proxy (''). In production set VITE_API_BASE to your backend URL if different origin.
+const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 function App() {
   const [url, setUrl] = useState('')
@@ -9,6 +10,22 @@ function App() {
   const [progress, setProgress] = useState('')
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState(null)
+  const [storePassword, setStorePassword] = useState('')
+  const [view, setView] = useState('analyze') // 'analyze' | 'stored'
+  const [storedData, setStoredData] = useState(null) // { neutral: [...], sad: [...], ... }
+  const [storedLoading, setStoredLoading] = useState(false)
+  const [storedCategory, setStoredCategory] = useState(null) // null = show 4 buttons; 'sad' etc = show that category's page
+  const [deleteTarget, setDeleteTarget] = useState(null) // { emotion, video_id, stored_at_utc } when user clicked Delete
+  const [deletePassword, setDeletePassword] = useState('') // only used in the row that's in "confirm delete" mode
+  const [deletingId, setDeletingId] = useState(null) // video_id+stored_at_utc while delete in progress
+  const STORED_EMOTIONS = [
+    { key: 'neutral', label: 'Neutral' },
+    { key: 'pleased', label: 'Pleased' },
+    { key: 'funny', label: 'Funny' },
+    { key: 'sad', label: 'Sad' },
+  ]
 
   async function handleAnalyze(e) {
     e.preventDefault()
@@ -64,14 +81,245 @@ function App() {
     }
   }
 
+  async function handleStore(storeUnderEmotion = null) {
+    if (!result || !result.video_id) return
+    setError(null)
+    setSaveStatus(null)
+    setSaving(true)
+    try {
+      const payload = {
+        store_password: storePassword,
+        video_id: result.video_id,
+        title: result.title || '',
+        video_emotion: result.video_emotion,
+        video_emotion_code: result.video_emotion_code,
+        stage2_emotion: result.stage2_emotion,
+        stage2_emotion_code: result.stage2_emotion_code,
+        stage2_emotion_2: result.stage2_emotion_2,
+        stage2_emotion_code_2: result.stage2_emotion_code_2,
+        emotion_percentages: result.emotion_percentages,
+        comment_count: result.comment_count,
+        store_under_emotion: storeUnderEmotion ?? undefined,
+      }
+      const res = await fetch(`${API_BASE}/api/store`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.detail || res.statusText)
+      }
+      const data = await res.json()
+      setSaveStatus(`Stored under ${data.stored_in}/${data.filename}`)
+      setStorePassword('')
+    } catch (err) {
+      setError(err.message || 'Failed to store video.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function loadStored() {
+    setView('stored')
+    setStoredCategory(null)
+    setError(null)
+    setStoredLoading(true)
+    setStoredData(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/stored`)
+      if (!res.ok) throw new Error('Failed to load stored videos')
+      const data = await res.json()
+      setStoredData(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setStoredLoading(false)
+    }
+  }
+
+  async function handleDeleteStored(emotion, videoId, storedAtUtc, password) {
+    if (!password || !String(password).trim()) {
+      setError('Enter delete password')
+      return
+    }
+    const id = `${videoId}-${storedAtUtc}`
+    setDeletingId(id)
+    setError(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/stored/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          delete_password: password.trim(),
+          emotion,
+          video_id: videoId,
+          stored_at_utc: storedAtUtc,
+        }),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        let detail = res.statusText
+        try {
+          const errData = JSON.parse(text)
+          if (errData.detail) detail = typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail)
+        } catch (_) {}
+        throw new Error(detail)
+      }
+      setDeleteTarget(null)
+      setDeletePassword('')
+      const listRes = await fetch(`${API_BASE}/api/stored`)
+      if (listRes.ok) {
+        const data = await listRes.json()
+        setStoredData(data)
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to delete')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <div className="app">
       <header className="header">
         <h1>BSC Research</h1>
         <p className="tagline">Brain Stimuli Curation — Viewers Comments Model (VCM)</p>
+        <nav className="nav-tabs">
+          <button
+            type="button"
+            className={`nav-tab ${view === 'analyze' ? 'active' : ''}`}
+            onClick={() => { setView('analyze'); setError(null); }}
+          >
+            Analyze
+          </button>
+          <button
+            type="button"
+            className={`nav-tab ${view === 'stored' ? 'active' : ''}`}
+            onClick={loadStored}
+          >
+            Stored
+          </button>
+        </nav>
       </header>
 
       <main className="main">
+        {view === 'stored' && (
+          <section className="card stored-section">
+            <h2>Stored videos</h2>
+            <p className="hint">Videos stored by researchers. Pick an emotion to see its videos.</p>
+            {storedLoading ? (
+              <p className="progress">Loading…</p>
+            ) : storedData && Object.keys(storedData).length === 0 ? (
+              <p className="hint">No stored videos yet.</p>
+            ) : storedCategory != null ? (
+              <>
+                <button
+                  type="button"
+                  className="btn stored-back-btn"
+                  onClick={() => setStoredCategory(null)}
+                >
+                  ← Back to categories
+                </button>
+                <h3 className="stored-category-title">{STORED_EMOTIONS.find(e => e.key === storedCategory)?.label ?? storedCategory}</h3>
+                {error && <p className="error">{error}</p>}
+                <ul className="stored-video-list">
+                  {(storedData && storedData[storedCategory] ? storedData[storedCategory] : []).map((v, i) => {
+                    const isDeleteTarget = deleteTarget && deleteTarget.video_id === v.video_id && deleteTarget.stored_at_utc === v.stored_at_utc
+                    const isDeleting = deletingId === `${v.video_id}-${v.stored_at_utc}`
+                    return (
+                      <li key={`${v.video_id}-${v.stored_at_utc}-${i}`} className="stored-video-item">
+                        <a
+                          href={`https://www.youtube.com/watch?v=${v.video_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="stored-video-link"
+                        >
+                          {v.title || v.video_id}
+                        </a>
+                        {v.stored_at_utc && (
+                          <span className="stored-meta"> · {v.stored_at_utc}</span>
+                        )}
+                        {!isDeleteTarget ? (
+                          <button
+                            type="button"
+                            className="btn btn-delete-stored"
+                            onClick={() => {
+                              setError(null)
+                              setDeletePassword('')
+                              setDeleteTarget({ emotion: storedCategory, video_id: v.video_id, stored_at_utc: v.stored_at_utc })
+                            }}
+                            disabled={isDeleting}
+                          >
+                            Delete
+                          </button>
+                        ) : (
+                          <span className="stored-delete-inline">
+                            <input
+                              type="password"
+                              placeholder="Delete password"
+                              value={deletePassword}
+                              onChange={(e) => setDeletePassword(e.target.value)}
+                              className="input stored-delete-pw-input"
+                              autoComplete="new-password"
+                              aria-label="Delete password"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  handleDeleteStored(storedCategory, v.video_id, v.stored_at_utc, e.target.value || deletePassword)
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-confirm-delete"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                const pwInput = e.currentTarget.closest('.stored-delete-inline')?.querySelector('input[type="password"]')
+                                const pw = pwInput ? pwInput.value : deletePassword
+                                handleDeleteStored(storedCategory, v.video_id, v.stored_at_utc, pw)
+                              }}
+                              disabled={isDeleting}
+                            >
+                              {isDeleting ? 'Deleting…' : 'Confirm delete'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-cancel-delete"
+                              onClick={() => { setDeleteTarget(null); setDeletePassword(''); setError(null); }}
+                              disabled={isDeleting}
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+                {(!storedData || !storedData[storedCategory] || storedData[storedCategory].length === 0) && (
+                  <p className="hint">No videos in this category yet.</p>
+                )}
+              </>
+            ) : storedData ? (
+              <div className="stored-buttons">
+                {STORED_EMOTIONS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className="btn stored-emotion-btn"
+                    onClick={() => setStoredCategory(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        )}
+
+        {view === 'analyze' && (
+        <>
         <section className="card input-section">
           <h2>Analyze a YouTube video</h2>
           <p className="hint">Paste a YouTube URL. We fetch comments, run each through the emotion model, then show the percentage of each emotion and the most prominent one. (Requires YouTube API key on the server.)</p>
@@ -107,6 +355,40 @@ function App() {
               >
                 Watch on YouTube ↗
               </a>
+              <div className="store-row">
+                <input
+                  type="password"
+                  placeholder="Storing password"
+                  value={storePassword}
+                  onChange={(e) => setStorePassword(e.target.value)}
+                  className="input store-password-input"
+                  disabled={saving}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="btn store-btn"
+                  onClick={() => handleStore(result.stage2_emotion ?? result.video_emotion)}
+                  disabled={saving}
+                  title="Store under 1st dominant"
+                >
+                  {saving ? 'Storing…' : `Store under 1st (${result.stage2_emotion ?? result.video_emotion ?? 'prominent'})`}
+                </button>
+                {result.stage2_emotion_2 != null && result.stage2_emotion_2 !== '' && (
+                  <button
+                    type="button"
+                    className="btn store-btn store-btn-2nd"
+                    onClick={() => handleStore(result.stage2_emotion_2)}
+                    disabled={saving}
+                    title="Store under 2nd dominant"
+                  >
+                    {saving ? 'Storing…' : `Store under 2nd (${result.stage2_emotion_2})`}
+                  </button>
+                )}
+              </div>
+              {saveStatus && (
+                <p className="hint store-status">{saveStatus}</p>
+              )}
               {result.video_emotion != null || result.emotion_percentages || result.stage2_emotion ? (
                 <div className="final-emotion-box">
                   <span className="final-emotion-label">Video emotion</span>
@@ -116,11 +398,17 @@ function App() {
                     </p>
                   )}
                   <p className="prominent-emotion stage2-row">
-                    Stage 2 model (RF) dominant:{' '}
+                    Stage 2 model (RF) 1st:{' '}
                     {result.stage2_emotion != null ? (
                       <span className={`emotion-badge emotion-${result.stage2_emotion} final-emotion-badge`}>{result.stage2_emotion}</span>
                     ) : (
                       <span className="stage2-unavailable">—</span>
+                    )}
+                    {result.stage2_emotion_2 != null && result.stage2_emotion_2 !== '' && (
+                      <>
+                        {' · '}2nd:{' '}
+                        <span className={`emotion-badge emotion-${result.stage2_emotion_2} final-emotion-badge`}>{result.stage2_emotion_2}</span>
+                      </>
                     )}
                   </p>
                   {result.emotion_percentages && (
@@ -159,6 +447,8 @@ function App() {
           <h2>MSA (Liris Accede)</h2>
           <p className="coming-soon">Coming soon — multimodal sentiment analysis will be integrated here.</p>
         </section>
+        </>
+        )}
       </main>
 
       <footer className="footer">

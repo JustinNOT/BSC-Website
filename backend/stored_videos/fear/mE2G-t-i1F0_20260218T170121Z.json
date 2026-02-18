@@ -1,0 +1,17 @@
+{
+  "stored_at_utc": "20260218T170121Z",
+  "video_id": "mE2G-t-i1F0",
+  "title": "Annabelle: Creation (2017) - It Wasn't Our Annabelle Scene (8/10) | Movieclips",
+  "video_emotion": "neutral",
+  "video_emotion_code": 0,
+  "stage2_emotion": "fear",
+  "stage2_emotion_code": 3,
+  "emotion_percentages": {
+    "neutral": 76.7,
+    "pleased": 6.7,
+    "funny": 3.3,
+    "fear": 10.0,
+    "sad": 3.3
+  },
+  "comment_count": 30
+}

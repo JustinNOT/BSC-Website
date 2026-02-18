@@ -1,0 +1,17 @@
+{
+  "stored_at_utc": "20260218T170416Z",
+  "video_id": "S_6vjb1cJkE",
+  "title": "The Pursuit of Happyness: Chris is hired",
+  "video_emotion": "neutral",
+  "video_emotion_code": 0,
+  "stage2_emotion": "pleased",
+  "stage2_emotion_code": 1,
+  "emotion_percentages": {
+    "neutral": 86.7,
+    "pleased": 10.0,
+    "funny": 0.0,
+    "fear": 0.0,
+    "sad": 3.3
+  },
+  "comment_count": 30
+}

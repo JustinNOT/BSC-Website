@@ -7,6 +7,10 @@ import re
 import json
 from pathlib import Path
 from collections import Counter
+from datetime import datetime
+
+from dotenv import load_dotenv
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +26,7 @@ from text_utils import expand_emojis_for_emotion
 # Paths
 BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
+STORED_DIR = BASE_DIR / "stored_videos"
 
 # Default sentiment labels (0-4)
 SENTIMENT_LABELS = {"0": "neutral", "1": "pleased", "2": "funny", "3": "fear", "4": "sad"}
@@ -72,6 +77,13 @@ def get_label(code: int) -> str:
     return _labels.get(str(code), "unknown")
 
 
+def _safe_emotion_folder(label: str | None) -> str:
+    """Sanitize emotion label for use as folder name."""
+    if not label:
+        return "unknown"
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", label.lower())
+
+
 # --- YouTube ---
 def extract_video_id(url: str) -> str | None:
     patterns = [
@@ -88,12 +100,12 @@ def extract_video_id(url: str) -> str | None:
     return None
 
 
-# YouTube API key (or set YOUTUBE_API_KEY env var to override)
-YOUTUBE_API_KEY = "AIzaSyBY_PfdJBJGtmzVJpE9hWZW_CUROhyc24Q"
+# YouTube API key — must be set via YOUTUBE_API_KEY env or backend/.env
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "").strip()
 
 
 def get_youtube_client():
-    api_key = os.environ.get("YOUTUBE_API_KEY", YOUTUBE_API_KEY or "").strip()
+    api_key = YOUTUBE_API_KEY or os.environ.get("YOUTUBE_API_KEY", "").strip()
     if not api_key:
         raise HTTPException(
             status_code=503,
@@ -107,7 +119,12 @@ _comment_cache: dict[str, list] = {}
 _comment_cache_max_size = int(os.environ.get("VCM_COMMENT_CACHE_SIZE", "200"))
 
 
-def fetch_comments(video_id: str, max_results: int = 100):
+# Must match build_stage2_dataset.py: fetch 100, sort by likes, use top 30 for Stage 2. Changing this would change the count distribution and hurt Stage 2 accuracy unless you retrain.
+DEFAULT_FETCH_COMMENT_LIMIT = 100
+
+def fetch_comments(video_id: str, max_results: int = None):
+    if max_results is None:
+        max_results = DEFAULT_FETCH_COMMENT_LIMIT
     if os.environ.get("VCM_DISABLE_CACHE", "").lower() in ("1", "true", "yes"):
         return _fetch_comments_uncached(video_id, max_results)
     if video_id in _comment_cache:
@@ -127,13 +144,16 @@ def _fetch_comments_uncached(video_id: str, max_results: int = 100):
     next_page_token = None
     while True:
         try:
+            to_fetch = min(100, max_results - len(comments))
+            if to_fetch <= 0:
+                break
             response = (
                 youtube.commentThreads()
                 .list(
                     part="snippet",
                     videoId=video_id,
                     pageToken=next_page_token,
-                    maxResults=min(max_results, 100),
+                    maxResults=to_fetch,
                     textFormat="plainText",
                 )
                 .execute()
@@ -171,11 +191,13 @@ def get_video_title(video_id: str) -> str | None:
 
 
 # --- Prediction ---
-def predict_comments_and_video(video_id: str, max_comments: int = 100):
+def predict_comments_and_video(video_id: str, max_comments: int = None):
+    if max_comments is None:
+        max_comments = DEFAULT_FETCH_COMMENT_LIMIT
     load_models()
     comments = fetch_comments(video_id, max_results=max_comments)
     if not comments:
-        return [], None, None, None, None, None
+        return [], None, None, None, None, None, None, None
 
     df = pd.DataFrame(comments)
     df = df.sort_values("like_count", ascending=False).reset_index(drop=True)
@@ -201,11 +223,16 @@ def predict_comments_and_video(video_id: str, max_comments: int = 100):
         if len(valid_preds) >= 30:
             break
 
+    # Only show top 30 by likes (same pool used for Stage 2)
+    comment_predictions = comment_predictions[:30]
+
     video_emotion = None
     video_emotion_code = None
     emotion_percentages = None
     stage2_emotion = None
     stage2_emotion_code = None
+    stage2_emotion_2 = None
+    stage2_emotion_code_2 = None
     if len(valid_preds) >= 1:
         counts = [valid_preds.count(i) for i in range(5)]
         total = sum(counts)
@@ -221,23 +248,35 @@ def predict_comments_and_video(video_id: str, max_comments: int = 100):
                     [counts],
                     columns=[f"Count_{i}" for i in range(5)],
                 )
-                stage2_emotion_code = int(_rf_model.predict(X_counts)[0])
+                proba = _rf_model.predict_proba(X_counts)[0]
+                classes = _rf_model.classes_
+                order = sorted(range(len(proba)), key=lambda i: -proba[i])
+                stage2_emotion_code = int(classes[order[0]])
                 stage2_emotion = get_label(stage2_emotion_code)
+                if len(order) >= 2:
+                    stage2_emotion_code_2 = int(classes[order[1]])
+                    stage2_emotion_2 = get_label(stage2_emotion_code_2)
             except Exception:
-                pass
+                try:
+                    stage2_emotion_code = int(_rf_model.predict(X_counts)[0])
+                    stage2_emotion = get_label(stage2_emotion_code)
+                except Exception:
+                    pass
 
-    return comment_predictions, video_emotion, video_emotion_code, emotion_percentages, stage2_emotion, stage2_emotion_code
+    return comment_predictions, video_emotion, video_emotion_code, emotion_percentages, stage2_emotion, stage2_emotion_code, stage2_emotion_2, stage2_emotion_code_2
 
 
-def predict_comments_and_video_with_progress(video_id: str, max_comments: int = 100):
+def predict_comments_and_video_with_progress(video_id: str, max_comments: int = None):
     """Same as predict_comments_and_video but yields (progress_message, result_tuple).
     result_tuple is None until the end.
     """
+    if max_comments is None:
+        max_comments = DEFAULT_FETCH_COMMENT_LIMIT
     yield "Fetching comments from YouTube…", None
     load_models()
     comments = fetch_comments(video_id, max_results=max_comments)
     if not comments:
-        yield "No comments found.", ([], None, None, None, None, None)
+        yield "No comments found.", ([], None, None, None, None, None, None, None)
         return
 
     yield f"Got {len(comments)} comments. Loading model…", None
@@ -268,11 +307,16 @@ def predict_comments_and_video_with_progress(video_id: str, max_comments: int = 
         if (len(comment_predictions) % 10) == 0 and len(comment_predictions) > 0:
             yield f"Analyzed {len(comment_predictions)} comments…", None
 
+    # Only show top 30 by likes (same pool used for Stage 2)
+    comment_predictions = comment_predictions[:30]
+
     video_emotion = None
     video_emotion_code = None
     emotion_percentages = None
     stage2_emotion = None
     stage2_emotion_code = None
+    stage2_emotion_2 = None
+    stage2_emotion_code_2 = None
     if len(valid_preds) >= 1:
         yield "Computing final video emotion…", None
         counts = [valid_preds.count(i) for i in range(5)]
@@ -289,17 +333,48 @@ def predict_comments_and_video_with_progress(video_id: str, max_comments: int = 
                     [counts],
                     columns=[f"Count_{i}" for i in range(5)],
                 )
-                stage2_emotion_code = int(_rf_model.predict(X_counts)[0])
+                proba = _rf_model.predict_proba(X_counts)[0]
+                classes = _rf_model.classes_
+                order = sorted(range(len(proba)), key=lambda i: -proba[i])
+                stage2_emotion_code = int(classes[order[0]])
                 stage2_emotion = get_label(stage2_emotion_code)
+                if len(order) >= 2:
+                    stage2_emotion_code_2 = int(classes[order[1]])
+                    stage2_emotion_2 = get_label(stage2_emotion_code_2)
             except Exception:
-                pass
+                try:
+                    stage2_emotion_code = int(_rf_model.predict(X_counts)[0])
+                    stage2_emotion = get_label(stage2_emotion_code)
+                except Exception:
+                    pass
 
-    yield "Done.", (comment_predictions, video_emotion, video_emotion_code, emotion_percentages, stage2_emotion, stage2_emotion_code)
+    yield "Done.", (comment_predictions, video_emotion, video_emotion_code, emotion_percentages, stage2_emotion, stage2_emotion_code, stage2_emotion_2, stage2_emotion_code_2)
 
 
 # --- API ---
 class AnalyzeRequest(BaseModel):
     youtube_url: str
+
+
+# Password required to store videos (researchers must enter this on the site). Set STORE_PASSWORD in .env to override.
+STORE_PASSWORD = os.environ.get("STORE_PASSWORD", "SBRH8888")
+# Password required to delete stored videos. Set DELETE_PASSWORD in .env to override.
+DELETE_PASSWORD = os.environ.get("DELETE_PASSWORD", "SBRH6666")
+
+
+class StoreRequest(BaseModel):
+    store_password: str
+    video_id: str
+    title: str | None = ""
+    video_emotion: str | None = None
+    video_emotion_code: int | None = None
+    stage2_emotion: str | None = None
+    stage2_emotion_code: int | None = None
+    stage2_emotion_2: str | None = None
+    stage2_emotion_code_2: int | None = None
+    emotion_percentages: dict[str, float] | None = None
+    comment_count: int | None = None
+    store_under_emotion: str | None = None  # e.g. "sad" to store under 1st or 2nd dominant
 
 
 @app.get("/")
@@ -323,8 +398,8 @@ def health():
 def _stream_analyze_gen(video_id: str, title: str | None):
     for msg, result in predict_comments_and_video_with_progress(video_id):
         if result is not None:
-            comments_with_emotions, video_emotion, video_emotion_code, emotion_percentages, stage2_emotion, stage2_emotion_code = result
-            print(f"  [API] Done. {len(comments_with_emotions)} comments, prominent: {video_emotion}, stage2: {stage2_emotion}", flush=True)
+            comments_with_emotions, video_emotion, video_emotion_code, emotion_percentages, stage2_emotion, stage2_emotion_code, stage2_emotion_2, stage2_emotion_code_2 = result
+            print(f"  [API] Done. {len(comments_with_emotions)} comments, stage2: {stage2_emotion}, 2nd: {stage2_emotion_2}", flush=True)
             yield json.dumps({
                 "type": "result",
                 "data": {
@@ -335,6 +410,8 @@ def _stream_analyze_gen(video_id: str, title: str | None):
                     "emotion_percentages": emotion_percentages,
                     "stage2_emotion": stage2_emotion,
                     "stage2_emotion_code": stage2_emotion_code,
+                    "stage2_emotion_2": stage2_emotion_2,
+                    "stage2_emotion_code_2": stage2_emotion_code_2,
                     "comments": comments_with_emotions,
                     "comment_count": len(comments_with_emotions),
                 },
@@ -350,7 +427,7 @@ def analyze(request: AnalyzeRequest):
     if not video_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube URL or video ID")
     title = get_video_title(video_id)
-    comments_with_emotions, video_emotion, video_emotion_code, emotion_percentages, stage2_emotion, stage2_emotion_code = predict_comments_and_video(
+    comments_with_emotions, video_emotion, video_emotion_code, emotion_percentages, stage2_emotion, stage2_emotion_code, stage2_emotion_2, stage2_emotion_code_2 = predict_comments_and_video(
         video_id
     )
     return {
@@ -361,9 +438,126 @@ def analyze(request: AnalyzeRequest):
         "emotion_percentages": emotion_percentages,
         "stage2_emotion": stage2_emotion,
         "stage2_emotion_code": stage2_emotion_code,
+        "stage2_emotion_2": stage2_emotion_2,
+        "stage2_emotion_code_2": stage2_emotion_code_2,
         "comments": comments_with_emotions,
         "comment_count": len(comments_with_emotions),
     }
+
+
+@app.post("/api/store")
+def store_video(request: StoreRequest):
+    """Store the current video's summary under a folder named by its emotion.
+
+    Requires correct store_password. Files are written to
+    backend/stored_videos/<emotion>/*.json so researchers can browse by emotion.
+    """
+    if request.store_password != STORE_PASSWORD:
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    if not request.video_id:
+        raise HTTPException(status_code=400, detail="video_id is required")
+
+    # Use chosen emotion folder, or default to 1st dominant.
+    main_label = (request.store_under_emotion or request.stage2_emotion or request.video_emotion or "unknown").strip()
+    if not main_label:
+        main_label = "unknown"
+    folder = STORED_DIR / _safe_emotion_folder(main_label)
+    folder.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    filename = f"{request.video_id}_{ts}.json"
+    path = folder / filename
+
+    payload = {
+        "stored_at_utc": ts,
+        "video_id": request.video_id,
+        "title": request.title or "",
+        "video_emotion": request.video_emotion,
+        "video_emotion_code": request.video_emotion_code,
+        "stage2_emotion": request.stage2_emotion,
+        "stage2_emotion_code": request.stage2_emotion_code,
+        "stage2_emotion_2": request.stage2_emotion_2,
+        "stage2_emotion_code_2": request.stage2_emotion_code_2,
+        "emotion_percentages": request.emotion_percentages,
+        "comment_count": request.comment_count,
+    }
+
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
+    return {
+        "status": "ok",
+        "stored_in": str(folder.relative_to(BASE_DIR)),
+        "filename": filename,
+        "emotion_folder": _safe_emotion_folder(main_label),
+    }
+
+
+@app.get("/api/stored")
+def list_stored():
+    """List all stored videos grouped by emotion category.
+    Returns { "neutral": [ { video_id, title, stored_at_utc } ], "sad": [...], ... }.
+    """
+    out = {}
+    if not STORED_DIR.exists():
+        return out
+    for folder in sorted(STORED_DIR.iterdir()):
+        if not folder.is_dir():
+            continue
+        cat = folder.name
+        out[cat] = []
+        for path in sorted(folder.glob("*.json")):
+            try:
+                with path.open(encoding="utf-8") as f:
+                    data = json.load(f)
+                out[cat].append({
+                    "video_id": data.get("video_id", ""),
+                    "title": data.get("title", ""),
+                    "stored_at_utc": data.get("stored_at_utc", ""),
+                })
+            except (json.JSONDecodeError, OSError):
+                continue
+    return out
+
+
+class DeleteStoredRequest(BaseModel):
+    delete_password: str
+    emotion: str
+    video_id: str
+    stored_at_utc: str
+
+
+@app.post("/api/stored/delete")
+def delete_stored(request: DeleteStoredRequest):
+    """Delete one stored video. Requires delete password."""
+    if request.delete_password != DELETE_PASSWORD:
+        raise HTTPException(status_code=401, detail="Incorrect delete password")
+    video_id = str(request.video_id or "").strip()
+    stored_at_utc = str(request.stored_at_utc or "").strip()
+    if not video_id or not stored_at_utc:
+        raise HTTPException(status_code=400, detail="video_id and stored_at_utc required")
+    # Filename is always video_id + _ + stored_at_utc + .json
+    filename = f"{video_id}_{stored_at_utc}.json"
+    # Find the file by scanning all emotion folders (avoids folder-name mismatch)
+    found_path = None
+    if STORED_DIR.exists():
+        for folder in STORED_DIR.iterdir():
+            if not folder.is_dir():
+                continue
+            candidate = folder / filename
+            if candidate.is_file():
+                found_path = candidate
+                break
+    if found_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Stored video not found: {filename}",
+        )
+    try:
+        found_path.unlink()
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Could not delete file: {e}")
+    return {"status": "ok", "deleted": filename}
 
 
 @app.post("/api/analyze-stream")

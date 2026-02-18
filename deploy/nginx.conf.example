@@ -1,0 +1,26 @@
+# Example Nginx config for BSC VCM (researchers site).
+# 1. Copy to your server, e.g. /etc/nginx/sites-available/bsc-vcm
+# 2. Replace /path/to/VCM with your repo path and your-domain.com with your domain.
+# 3. Enable: sudo ln -s /etc/nginx/sites-available/bsc-vcm /etc/nginx/sites-enabled/
+# 4. SSL: sudo certbot --nginx -d your-domain.com
+# 5. sudo nginx -t && sudo systemctl reload nginx
+
+server {
+    listen 80;
+    server_name your-domain.com;
+    root /path/to/VCM/frontend/dist;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

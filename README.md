@@ -37,7 +37,10 @@ Optional: set `VCM_OVERSAMPLE=0` to disable oversampling of minority classes; se
 3. Set the key in the environment where you run the backend:
 
 ```bash
-set YOUTUBE_API_KEY=your_key_here
+# Windows (cmd)
+set YOUTUBE_API_KEY=your-key-here
+
+# Or use backend/.env: copy backend/.env.example to backend/.env and set YOUTUBE_API_KEY there.
 ```
 
 Without this, the "Analyze" request will fail with a message that the key is not set.
@@ -63,6 +66,8 @@ npm run dev
 ```
 
 Open **http://localhost:3000**. Paste a YouTube URL and click **Analyze** to see comments, emotion percentages, and the final video emotion.
+
+**To publish the site for researchers:** see **RESEARCHER_DEPLOY.md** (short checklist of only what you need to do).
 
 ## API
 
