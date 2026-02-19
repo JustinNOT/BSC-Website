@@ -577,6 +577,9 @@ function App() {
         )}
       </main>
 
+      <footer className="footer" style={{ marginTop: '2rem', padding: '0.5rem' }}>
+        hi
+      </footer>
     </div>
   )
 }

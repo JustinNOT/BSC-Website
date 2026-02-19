@@ -551,12 +551,26 @@
 }
 
 /* MSA section (valence/arousal timeline) */
+.msa-section .va-status-block {
+  margin-top: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--textMuted);
+  background: var(--surface2);
+  border-radius: 4px;
+  min-height: 1.5em;
+}
+.msa-section .va-status-block-error {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
 .msa-section .va-timeline-content .va-upload-wrap {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
+  margin-bottom: 0.25rem;
 }
 
 .msa-section .va-timeline-content .va-upload-wrap label {
