@@ -1,6 +1,6 @@
 # systemd unit for BSC VCM backend (researchers site).
 # 1. Copy to /etc/systemd/system/bsc-vcm-backend.service
-# 2. Edit User, WorkingDirectory, and the Environment line (set your YouTube API key).
+# 2. Edit User, WorkingDirectory, VCM_ROOT, and ensure backend/.env exists with YOUTUBE_API_KEY (and optional CORS_ORIGINS).
 # 3. sudo systemctl daemon-reload && sudo systemctl enable bsc-vcm-backend && sudo systemctl start bsc-vcm-backend
 
 [Unit]
@@ -11,7 +11,8 @@ After=network.target
 User=www-data
 Group=www-data
 WorkingDirectory=/path/to/VCM/backend
-Environment="YOUTUBE_API_KEY=your-youtube-api-key-here"
+# Load YOUTUBE_API_KEY, CORS_ORIGINS, etc. from backend/.env (do not commit .env)
+EnvironmentFile=/path/to/VCM/backend/.env
 Environment="PATH=/path/to/VCM/backend/venv/bin"
 ExecStart=/path/to/VCM/backend/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000
 Restart=always

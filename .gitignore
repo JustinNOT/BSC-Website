@@ -1,8 +1,7 @@
 # Only track bsc-vcm; ignore this nested folder
 Fourth Stage - Redemption/
 
-# Web app
-backend/models/*.joblib
+# Web app (models/*.joblib are committed so Railway can deploy them)
 frontend/node_modules
 .env
 .env.local

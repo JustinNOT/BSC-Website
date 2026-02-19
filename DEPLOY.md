@@ -35,6 +35,7 @@ On the machine or service that will run the backend:
 2. **Set environment variables** (no hardcoded secrets in code):
    - `YOUTUBE_API_KEY` — Your YouTube Data API v3 key (required for fetching comments).
    - Optionally: `VCM_COMMENT_CACHE_SIZE`, `VCM_DISABLE_CACHE` (see `backend/API_QUOTA.md`).
+   - **Security (recommended for production):** Set `CORS_ORIGINS` to your frontend URL(s), comma-separated (e.g. `https://yourdomain.com`). This restricts which sites can call your API. Rate limits apply per IP by default (20 analyze requests/minute, 30 store/minute); override with `RATE_LIMIT_ANALYZE`, `RATE_LIMIT_STORE`, `RATE_LIMIT_GENERAL` if needed (see `backend/.env.example`).
 
 3. **Install and run:**
    ```bash
@@ -75,7 +76,7 @@ On the machine or service that will run the backend:
 
 If the frontend is on e.g. `https://bsc.example.com` and the backend on `https://api.example.com`:
 
-1. **Backend:** CORS is already set to allow all origins (`allow_origins=["*"]`). For extra security you can restrict this to your frontend domain later.
+1. **Backend:** Set `CORS_ORIGINS=https://bsc.example.com` (your frontend URL) in the backend environment so only your site can call the API. If unset, all origins are allowed (`*`).
 
 2. **Frontend:** Set `VITE_API_BASE=https://api.example.com` (your backend URL) before `npm run build`. The built app will call that URL for `/api/analyze`, `/api/store`, etc.
 
@@ -89,6 +90,7 @@ If the frontend is on e.g. `https://bsc.example.com` and the backend on `https:/
 - [ ] `YOUTUBE_API_KEY` is set on the backend (and not in the repo).
 - [ ] Frontend build used the correct `VITE_API_BASE` if backend is on another URL.
 - [ ] HTTPS is enabled (via your host or a reverse proxy).
+- [ ] **Security:** Set `CORS_ORIGINS` to your frontend URL in production. Rate limiting is on by default (per IP).
 - [ ] You’ve read `backend/PROTECT_API_QUOTA.md` and (optional) set quota alerts or key restrictions.
 - [ ] Storing password is only shared with researchers who should be able to store (`backend/main.py`: `STORE_PASSWORD`).
 
