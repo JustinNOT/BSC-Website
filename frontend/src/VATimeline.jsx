@@ -338,14 +338,16 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
   }
 
   const displayStatus = uploadStatus && uploadStatus.trim() ? uploadStatus : 'Ready to upload'
-  const isError = statusClass === 'va-error'
+  const isNeutral = displayStatus === 'Ready to upload'
+  const isError = !isNeutral && statusClass === 'va-error'
+  const statusCls = isNeutral ? '' : statusClass
 
   return (
     <div className="va-timeline-content">
       <div className="va-upload-wrap">
         <label htmlFor="vaFileInput">Upload MP4</label>
         <input type="file" id="vaFileInput" accept="video/mp4" onChange={handleFileChange} className="input" />
-        <span id="uploadStatus" className={`va-upload-status ${statusClass}`}>{displayStatus}</span>
+        <span id="uploadStatus" className={`va-upload-status ${statusCls}`}>{displayStatus}</span>
       </div>
       <div
         className={`va-status-block ${isError ? 'va-status-block-error' : ''}`}

@@ -205,7 +205,7 @@ function App() {
 
   return (
     <div className="app">
-      <div className="front-page-hi" aria-hidden="true">hi</div>
+      <div className="front-page-hi" aria-hidden="true">1</div>
       <header className="header">
         <h1>BSC Research</h1>
         <p className="tagline">BSC-VCM-MSA</p>
@@ -579,7 +579,7 @@ function App() {
       </main>
 
       <footer className="footer" style={{ marginTop: '2rem', padding: '0.5rem' }}>
-        hi
+        1
       </footer>
     </div>
   )
