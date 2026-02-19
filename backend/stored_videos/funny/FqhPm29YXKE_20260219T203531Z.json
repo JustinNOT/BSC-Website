@@ -1,0 +1,21 @@
+{
+  "stored_at_utc": "20260219T203531Z",
+  "video_id": "FqhPm29YXKE",
+  "title": "The Dictator - Ladees Washroom, Restaurant scene",
+  "video_emotion": "neutral",
+  "video_emotion_code": 0,
+  "stage2_emotion": "funny",
+  "stage2_emotion_code": 2,
+  "stage2_emotion_2": "pleased",
+  "stage2_emotion_code_2": 1,
+  "emotion_percentages": {
+    "neutral": 60.0,
+    "pleased": 3.3,
+    "funny": 33.3,
+    "fear": 0.0,
+    "sad": 3.3
+  },
+  "comment_count": 30,
+  "va_average_valence": null,
+  "va_average_arousal": null
+}

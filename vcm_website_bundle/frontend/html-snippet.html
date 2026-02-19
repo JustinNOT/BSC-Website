@@ -1,0 +1,40 @@
+<!-- Paste this into your VCM page where you want the V/A upload + charts. -->
+<!-- 1. Include Chart.js and our assets (adjust paths to match your project): -->
+<!--
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="path/to/va-timeline.css">
+<script src="path/to/va-timeline.js"></script>
+-->
+
+<!-- 2. HTML structure (use IDs that match your VATimeline.init() options): -->
+<div class="va-upload-wrap">
+  <label for="vaFileInput">Upload MP4 for V/A</label>
+  <input type="file" id="vaFileInput" accept="video/mp4">
+  <span id="uploadStatus" class="va-upload-status"></span>
+</div>
+<video id="video" controls crossorigin="anonymous"></video>
+
+<div class="va-chart-label">Valence</div>
+<div class="va-chart-wrap">
+  <canvas id="valenceChart"></canvas>
+  <div class="va-playhead" id="valencePlayhead"></div>
+</div>
+<div class="va-chart-label">Arousal</div>
+<div class="va-chart-wrap">
+  <canvas id="arousalChart"></canvas>
+  <div class="va-playhead" id="arousalPlayhead"></div>
+</div>
+
+<!-- 3. In your app.js (or at end of page): -->
+<!--
+VATimeline.init({
+  apiBaseUrl: 'http://localhost:5000',
+  videoElId: 'video',
+  fileInputId: 'vaFileInput',
+  valenceChartCanvasId: 'valenceChart',
+  arousalChartCanvasId: 'arousalChart',
+  valencePlayheadId: 'valencePlayhead',
+  arousalPlayheadId: 'arousalPlayhead',
+  uploadStatusElId: 'uploadStatus'
+});
+-->

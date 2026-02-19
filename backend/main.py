@@ -374,7 +374,9 @@ class StoreRequest(BaseModel):
     stage2_emotion_code_2: int | None = None
     emotion_percentages: dict[str, float] | None = None
     comment_count: int | None = None
-    store_under_emotion: str | None = None  # e.g. "sad" to store under 1st or 2nd dominant
+    store_under_emotion: str | None = None  # e.g. "sad" or "high_v_low_a" for VA quadrant
+    va_average_valence: float | None = None
+    va_average_arousal: float | None = None
 
 
 @app.get("/")
@@ -480,6 +482,8 @@ def store_video(request: StoreRequest):
         "stage2_emotion_code_2": request.stage2_emotion_code_2,
         "emotion_percentages": request.emotion_percentages,
         "comment_count": request.comment_count,
+        "va_average_valence": request.va_average_valence,
+        "va_average_arousal": request.va_average_arousal,
     }
 
     with path.open("w", encoding="utf-8") as f:

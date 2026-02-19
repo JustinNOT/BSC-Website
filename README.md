@@ -74,9 +74,18 @@ Open **http://localhost:3000**. Paste a YouTube URL and click **Analyze** to see
 - **POST /api/analyze** — Body: `{ "youtube_url": "https://www.youtube.com/watch?v=..." }`. Returns video title, overall emotion (if RF model is present), and a list of comments with per-comment `emotion` and `emotion_code`.
 - **GET /api/health** — Reports whether models are loaded.
 
-## MSA (Liris Accede)
+## MSA (Liris Accede) — valence/arousal
 
-The UI includes a placeholder section for **MSA (Liris Accede)**. Integration will be added in a later update.
+The **MSA** section (on the Analyze page, below results) lets you upload an MP4 and see a valence/arousal timeline from the bundle in `vcm_website_bundle/` (model: `va_late_fusion_speech_emotion.joblib`).
+
+1. **Run the V/A server** (separate from the main VCM backend), from repo root:
+   - Windows: `scripts\run_va_server.bat`
+   - Linux/macOS: `bash scripts/run_va_server.sh`
+   - First time: `cd vcm_website_bundle && pip install -r requirements.txt`
+   - The model file must be in `vcm_website_bundle/checkpoints/va_late_fusion_speech_emotion.joblib` (see the bundle README).
+2. With the main backend and frontend running, scroll to **MSA (Liris Accede)** on the Analyze page, upload an MP4, and view the video and charts.
+
+The V/A server runs on port 5000. To use a different URL in production, set `VITE_VA_API_BASE` when building the frontend.
 
 ## Model accuracy
 

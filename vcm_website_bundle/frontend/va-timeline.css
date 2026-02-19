@@ -1,0 +1,29 @@
+/* V/A timeline – styles to add to your VCM website */
+
+.va-chart-wrap {
+  position: relative;
+  max-width: 900px;
+  height: 140px;
+  margin-bottom: 0.5rem;
+}
+.va-chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+.va-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #f44;
+  pointer-events: none;
+  z-index: 2;
+}
+.va-chart-label {
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+  color: #aaa;
+}
+.va-upload-status.loading { color: #ff922b; }
+.va-upload-status.va-error { color: #ff6b6b; }
+.va-upload-status.va-ok { color: #69db7c; }

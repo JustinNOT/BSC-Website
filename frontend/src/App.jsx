@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import './App.css'
+import VATimeline from './VATimeline'
 
 // In dev we use Vite proxy (''). In production set VITE_API_BASE to your backend URL if different origin.
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
+// V/A (valence/arousal) server runs separately on port 5000 by default.
+const VA_API_BASE = import.meta.env.VITE_VA_API_BASE ?? 'http://localhost:5000'
 
 function App() {
   const [url, setUrl] = useState('')
@@ -13,19 +16,28 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState(null)
   const [storePassword, setStorePassword] = useState('')
-  const [view, setView] = useState('analyze') // 'analyze' | 'stored'
+  const [view, setView] = useState('analyze') // 'analyze' | 'stored' | 'results'
+  const [lastVcmResult, setLastVcmResult] = useState(null) // best/latest VCM result for Results tab
+  const [lastMsaResult, setLastMsaResult] = useState(null) // best/latest MSA result for Results tab
   const [storedData, setStoredData] = useState(null) // { neutral: [...], sad: [...], ... }
   const [storedLoading, setStoredLoading] = useState(false)
   const [storedCategory, setStoredCategory] = useState(null) // null = show 4 buttons; 'sad' etc = show that category's page
   const [deleteTarget, setDeleteTarget] = useState(null) // { emotion, video_id, stored_at_utc } when user clicked Delete
   const [deletePassword, setDeletePassword] = useState('') // only used in the row that's in "confirm delete" mode
   const [deletingId, setDeletingId] = useState(null) // video_id+stored_at_utc while delete in progress
-  const STORED_EMOTIONS = [
+  const STORED_VCM = [
     { key: 'neutral', label: 'Neutral' },
     { key: 'pleased', label: 'Pleased' },
     { key: 'funny', label: 'Funny' },
     { key: 'sad', label: 'Sad' },
   ]
+  const STORED_MSA = [
+    { key: 'high_v_low_a', label: 'High V, Low A' },
+    { key: 'low_v_high_a', label: 'Low V, High A' },
+    { key: 'high_v_high_a', label: 'High V, High A' },
+    { key: 'low_v_low_a', label: 'Low V, Low A' },
+  ]
+  const STORED_EMOTIONS = [...STORED_VCM, ...STORED_MSA]
 
   async function handleAnalyze(e) {
     e.preventDefault()
@@ -58,7 +70,10 @@ function App() {
             try {
               const obj = JSON.parse(line)
               if (obj.type === 'progress') setProgress(obj.message)
-              if (obj.type === 'result') setResult(obj.data)
+              if (obj.type === 'result') {
+                setResult(obj.data)
+                setLastVcmResult(obj.data)
+              }
               if (obj.type === 'error') throw new Error(obj.detail)
             } catch (parseErr) {
               if (parseErr instanceof SyntaxError) continue
@@ -69,7 +84,10 @@ function App() {
       if (buffer.trim()) {
         try {
           const obj = JSON.parse(buffer)
-          if (obj.type === 'result') setResult(obj.data)
+          if (obj.type === 'result') {
+            setResult(obj.data)
+            setLastVcmResult(obj.data)
+          }
           if (obj.type === 'error') throw new Error(obj.detail)
         } catch (_) {}
       }
@@ -124,6 +142,9 @@ function App() {
     setView('stored')
     setStoredCategory(null)
     setError(null)
+    setStorePassword('')
+    setDeletePassword('')
+    setDeleteTarget(null)
     setStoredLoading(true)
     setStoredData(null)
     try {
@@ -184,12 +205,12 @@ function App() {
     <div className="app">
       <header className="header">
         <h1>BSC Research</h1>
-        <p className="tagline">Brain Stimuli Curation — Viewers Comments Model (VCM)</p>
+        <p className="tagline">BSC-VCM-MSA</p>
         <nav className="nav-tabs">
           <button
             type="button"
             className={`nav-tab ${view === 'analyze' ? 'active' : ''}`}
-            onClick={() => { setView('analyze'); setError(null); }}
+            onClick={() => { setView('analyze'); setError(null); setStorePassword(''); setDeletePassword(''); setDeleteTarget(null); }}
           >
             Analyze
           </button>
@@ -199,6 +220,13 @@ function App() {
             onClick={loadStored}
           >
             Stored
+          </button>
+          <button
+            type="button"
+            className={`nav-tab ${view === 'results' ? 'active' : ''}`}
+            onClick={() => { setView('results'); setError(null); setStorePassword(''); setDeletePassword(''); setDeleteTarget(null); }}
+          >
+            Results
           </button>
         </nav>
       </header>
@@ -217,7 +245,7 @@ function App() {
                 <button
                   type="button"
                   className="btn stored-back-btn"
-                  onClick={() => setStoredCategory(null)}
+                  onClick={() => { setStoredCategory(null); setDeletePassword(''); setDeleteTarget(null); }}
                 >
                   ← Back to categories
                 </button>
@@ -261,7 +289,7 @@ function App() {
                               value={deletePassword}
                               onChange={(e) => setDeletePassword(e.target.value)}
                               className="input stored-delete-pw-input"
-                              autoComplete="new-password"
+                              autoComplete="off"
                               aria-label="Delete password"
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
@@ -302,19 +330,113 @@ function App() {
                 )}
               </>
             ) : storedData ? (
-              <div className="stored-buttons">
-                {STORED_EMOTIONS.map(({ key, label }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className="btn stored-emotion-btn"
-                    onClick={() => setStoredCategory(key)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="stored-block">
+                  <h3 className="stored-block-title">VCM</h3>
+                  <div className="stored-buttons">
+                    {STORED_VCM.map(({ key, label }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className="btn stored-emotion-btn"
+                        onClick={() => setStoredCategory(key)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="stored-block">
+                  <h3 className="stored-block-title">MSA - continuous</h3>
+                  <div className="stored-buttons">
+                    {STORED_MSA.map(({ key, label }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className="btn stored-emotion-btn"
+                        onClick={() => setStoredCategory(key)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : null}
+          </section>
+        )}
+
+        {view === 'results' && (
+          <section className="card results-tab-section">
+            <h2>Results — best VCM &amp; MSA</h2>
+            <p className="hint">Your latest analysis results from the Analyze tab. Run a new analysis or MSA upload to update these.</p>
+
+            <div className="results-blocks">
+              <div className="card results-block">
+                <h3>Latest VCM result</h3>
+                {lastVcmResult ? (
+                  <div className="video-summary">
+                    <h4>{lastVcmResult.title || `Video ${lastVcmResult.video_id}`}</h4>
+                    <a
+                      href={`https://www.youtube.com/watch?v=${lastVcmResult.video_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="video-link"
+                    >
+                      Watch on YouTube ↗
+                    </a>
+                    {lastVcmResult.video_emotion && (
+                      <p className="overall-emotion">
+                        Dominant: <strong>{lastVcmResult.stage2_emotion ?? lastVcmResult.video_emotion}</strong>
+                        {lastVcmResult.stage2_emotion_2 != null && lastVcmResult.stage2_emotion_2 !== '' && (
+                          <> · 2nd: <strong>{lastVcmResult.stage2_emotion_2}</strong></>
+                        )}
+                      </p>
+                    )}
+                    {lastVcmResult.emotion_percentages && (
+                      <ul className="percent-list">
+                        {Object.entries(lastVcmResult.emotion_percentages).map(([name, pct]) => (
+                          <li key={name} className={lastVcmResult.video_emotion === name ? 'percent-item prominent' : 'percent-item'}>
+                            <span className="emotion-name">{name}</span>
+                            <span className="emotion-pct">{pct}%</span>
+                            <span className="pct-track"><span className="pct-bar" style={{ width: `${pct}%` }} /></span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="hint">Comments analyzed: {lastVcmResult.comment_count ?? 0}</p>
+                  </div>
+                ) : (
+                  <p className="hint">No VCM result yet. Analyze a YouTube video on the Analyze tab.</p>
+                )}
+              </div>
+
+              <div className="card results-block">
+                <h3>Latest MSA (continuous) result</h3>
+                {lastMsaResult ? (
+                  <div className="video-summary">
+                    <h4>{lastMsaResult.fileName ?? 'Uploaded video'}</h4>
+                    {lastMsaResult.videoUrl && (
+                      <a href={lastMsaResult.videoUrl} target="_blank" rel="noopener noreferrer" className="video-link">
+                        Open video ↗
+                      </a>
+                    )}
+                    {lastMsaResult.avgV != null && lastMsaResult.avgA != null && (
+                      <p className="overall-emotion">
+                        Average Valence: <strong>{lastMsaResult.avgV.toFixed(3)}</strong>
+                        {' · '}
+                        Average Arousal: <strong>{lastMsaResult.avgA.toFixed(3)}</strong>
+                      </p>
+                    )}
+                    {lastMsaResult.duration_sec != null && (
+                      <p className="hint">Duration: {lastMsaResult.duration_sec.toFixed(1)} s</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="hint">No MSA result yet. Upload an MP4 on the Analyze tab (MSA section).</p>
+                )}
+              </div>
+            </div>
           </section>
         )}
 
@@ -322,7 +444,7 @@ function App() {
         <>
         <section className="card input-section">
           <h2>Analyze a YouTube video</h2>
-          <p className="hint">Paste a YouTube URL. We fetch comments, run each through the emotion model, then show the percentage of each emotion and the most prominent one. (Requires YouTube API key on the server.)</p>
+          <p className="hint">Paste a YouTube URL. We fetch comments, run each through the emotion model, then show the percentage of each emotion and the most prominent one.</p>
           <form onSubmit={handleAnalyze} className="form">
             <input
               type="url"
@@ -443,17 +565,16 @@ function App() {
           </section>
         )}
 
-        <section className="card msa-placeholder">
-          <h2>MSA (Liris Accede)</h2>
-          <p className="coming-soon">Coming soon — multimodal sentiment analysis will be integrated here.</p>
+        <section className="card msa-section">
+          <h2>MSA (continuous)</h2>
+          <p className="hint">Upload an MP4 for valence/arousal (V/A) timeline.</p>
+          <VATimeline apiBaseUrl={VA_API_BASE} storeApiBase={API_BASE} onMsaResult={setLastMsaResult} />
+          <p className="hint msa-timing-hint">First run may take 1–2 minutes while the model loads; later runs are faster.</p>
         </section>
         </>
         )}
       </main>
 
-      <footer className="footer">
-        <p>VCM model: SVMPlus pipeline · Accuracy ~68% on test set</p>
-      </footer>
     </div>
   )
 }

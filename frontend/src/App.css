@@ -148,6 +148,10 @@
   color: var(--danger);
   font-size: 0.875rem;
   margin: 0.75rem 0 0 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: pre-wrap;
+  max-width: 100%;
 }
 
 .video-summary {
@@ -377,11 +381,25 @@
   margin-bottom: 0.25rem;
 }
 
+.stored-block {
+  margin-bottom: 1.5rem;
+}
+
+.stored-block:last-child {
+  margin-bottom: 0;
+}
+
+.stored-block-title {
+  font-size: 1rem;
+  margin: 0 0 0.5rem 0;
+  color: var(--textMuted);
+}
+
 .stored-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-top: 1rem;
+  margin-top: 0.25rem;
 }
 
 .stored-emotion-btn {
@@ -397,6 +415,41 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+/* Results tab */
+.results-tab-section h2 {
+  margin-bottom: 0.25rem;
+}
+
+.results-blocks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+.results-block {
+  padding: 1rem;
+}
+
+.results-block h3 {
+  font-size: 1rem;
+  margin: 0 0 0.75rem 0;
+  color: var(--textMuted);
+}
+
+.results-block .video-summary {
+  margin: 0;
+}
+
+.results-block .percent-list {
+  margin: 0.5rem 0;
+}
+
+.msa-timing-hint {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
 }
 
 .stored-category-title {
@@ -495,6 +548,104 @@
 .stored-meta {
   font-size: 0.8rem;
   color: var(--textMuted);
+}
+
+/* MSA section (valence/arousal timeline) */
+.msa-section .va-timeline-content .va-upload-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.msa-section .va-timeline-content .va-upload-wrap label {
+  font-size: 0.9rem;
+}
+
+.msa-section .va-upload-status {
+  font-size: 0.9rem;
+}
+
+.msa-section .va-upload-status.va-loading {
+  color: var(--accent);
+}
+
+.msa-section .va-upload-status.va-error {
+  color: #ff6b6b;
+}
+
+.msa-section .va-upload-status.va-ok {
+  color: #69db7c;
+}
+
+.msa-section .va-video {
+  width: 100%;
+  max-width: 720px;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  background: var(--surface2);
+}
+
+.msa-section .va-chart-label {
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+  color: var(--textMuted);
+}
+
+.msa-section .va-chart-wrap {
+  position: relative;
+  max-width: 900px;
+  height: 140px;
+  margin-bottom: 0.5rem;
+}
+
+.msa-section .va-chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.msa-section .va-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #f44;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.msa-section .va-average-row {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.msa-section .va-average-label {
+  color: var(--textMuted);
+}
+
+.msa-section .va-store-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.msa-section .va-store-row .store-password-input {
+  min-width: 120px;
+}
+
+.msa-section .va-store-buttons-label {
+  font-size: 0.9rem;
+  color: var(--textMuted);
+  margin-right: 0.25rem;
+}
+
+.msa-section .va-store-status {
+  margin-top: 0.25rem;
 }
 
 .footer {
