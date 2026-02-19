@@ -112,39 +112,48 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
     if (arousalPlayheadRef.current) arousalPlayheadRef.current.style.left = Math.max(0, Math.min(100, pct)) + '%'
   }, [duration, timelineData])
 
-  // Build charts when timelineData is set
+  // Build charts when timelineData is set (guarded so bad data never crashes the component)
   useEffect(() => {
-    if (!timelineData || (!timelineData.times_gt?.length && !timelineData.times_pred?.length)) return
     const data = timelineData
-    const totalMax = Math.max(...(data.times_gt || []), ...(data.times_pred || [0]), 1)
-    const xMin = 0
-    const xMax = Math.min(WINDOW_SEC, totalMax)
+    const timesPred = Array.isArray(data?.times_pred) ? data.times_pred : []
+    const valencePred = Array.isArray(data?.valence_pred) ? data.valence_pred : []
+    const arousalPred = Array.isArray(data?.arousal_pred) ? data.arousal_pred : []
+    const validLength = timesPred.length > 0 && timesPred.length === valencePred.length && valencePred.length === arousalPred.length
+    if (!data || (!data.times_gt?.length && !validLength)) return
 
     const vCanvas = valenceCanvasRef.current
     const aCanvas = arousalCanvasRef.current
     if (!vCanvas || !aCanvas) return
 
-    if (valenceChartRef.current) valenceChartRef.current.destroy()
-    const valenceDatasets = []
-    if (data.times_gt?.length) valenceDatasets.push(buildDataset('Ground truth', data.times_gt, data.valence_gt, '#4dabf7'))
-    valenceDatasets.push(buildDataset('Model', data.times_pred || [], data.valence_pred || [], '#ff922b'))
-    valenceChartRef.current = new Chart(vCanvas, {
-      type: 'line',
-      data: { datasets: valenceDatasets },
-      options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: xMin, max: xMax } } },
-    })
+    try {
+      const totalMax = Math.max(...(data.times_gt || []), ...(timesPred.length ? timesPred : [0]), 1)
+      const xMin = 0
+      const xMax = Math.min(WINDOW_SEC, totalMax)
 
-    if (arousalChartRef.current) arousalChartRef.current.destroy()
-    const arousalDatasets = []
-    if (data.times_gt?.length) arousalDatasets.push(buildDataset('Ground truth', data.times_gt, data.arousal_gt, '#4dabf7'))
-    arousalDatasets.push(buildDataset('Model', data.times_pred || [], data.arousal_pred || [], '#ff922b'))
-    arousalChartRef.current = new Chart(aCanvas, {
-      type: 'line',
-      data: { datasets: arousalDatasets },
-      options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: xMin, max: xMax } } },
-    })
+      if (valenceChartRef.current) valenceChartRef.current.destroy()
+      const valenceDatasets = []
+      if (data.times_gt?.length) valenceDatasets.push(buildDataset('Ground truth', data.times_gt, data.valence_gt, '#4dabf7'))
+      if (validLength) valenceDatasets.push(buildDataset('Model', timesPred, valencePred, '#ff922b'))
+      valenceChartRef.current = new Chart(vCanvas, {
+        type: 'line',
+        data: { datasets: valenceDatasets },
+        options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: xMin, max: xMax } } },
+      })
 
-    setTimeWindow(0)
+      if (arousalChartRef.current) arousalChartRef.current.destroy()
+      const arousalDatasets = []
+      if (data.times_gt?.length) arousalDatasets.push(buildDataset('Ground truth', data.times_gt, data.arousal_gt, '#4dabf7'))
+      if (validLength) arousalDatasets.push(buildDataset('Model', timesPred, arousalPred, '#ff922b'))
+      arousalChartRef.current = new Chart(aCanvas, {
+        type: 'line',
+        data: { datasets: arousalDatasets },
+        options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: xMin, max: xMax } } },
+      })
+
+      setTimeWindow(0)
+    } catch (chartErr) {
+      console.error('Chart error:', chartErr)
+    }
     return () => {
       if (valenceChartRef.current) { valenceChartRef.current.destroy(); valenceChartRef.current = null }
       if (arousalChartRef.current) { arousalChartRef.current.destroy(); arousalChartRef.current = null }
@@ -209,7 +218,16 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
       }
 
       function applyResult(j) {
-        const tl = j.timeline && (Array.isArray(j.timeline?.valence_pred) || Array.isArray(j.timeline?.times_pred)) ? j.timeline : null
+        const raw = j.timeline
+        const timesPred = Array.isArray(raw?.times_pred) ? raw.times_pred : []
+        const valencePred = Array.isArray(raw?.valence_pred) ? raw.valence_pred : []
+        const arousalPred = Array.isArray(raw?.arousal_pred) ? raw.arousal_pred : []
+        const valid = timesPred.length > 0 && timesPred.length === valencePred.length && valencePred.length === arousalPred.length
+        const tl = valid ? { ...raw, times_pred: timesPred, valence_pred: valencePred, arousal_pred: arousalPred } : null
+        if (!tl) {
+          showError('Server returned invalid timeline (missing or mismatched V/A data).')
+          return
+        }
         setUploadStatus('Done. Showing V/A for: ' + file.name)
         setStatusClass('va-ok')
         setDuration(j.duration_sec ?? 1)
@@ -279,12 +297,10 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
     e.target.value = ''
   }
 
-  const avgV = timelineData?.valence_pred?.length
-    ? timelineData.valence_pred.reduce((a, b) => a + b, 0) / timelineData.valence_pred.length
-    : null
-  const avgA = timelineData?.arousal_pred?.length
-    ? timelineData.arousal_pred.reduce((a, b) => a + b, 0) / timelineData.arousal_pred.length
-    : null
+  const vp = timelineData?.valence_pred
+  const ap = timelineData?.arousal_pred
+  const avgV = Array.isArray(vp) && vp.length ? vp.reduce((a, b) => a + b, 0) / vp.length : null
+  const avgA = Array.isArray(ap) && ap.length ? ap.reduce((a, b) => a + b, 0) / ap.length : null
 
   async function handleStoreQuadrant(quadrantKey) {
     if (!storeApiBase || !vaUploadId || avgV == null || avgA == null) return
