@@ -199,6 +199,29 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
       const decoder = new TextDecoder()
       let buffer = ''
       let gotResultOrError = false
+
+      function showError(msg) {
+        gotResultOrError = true
+        setTimelineData(null)
+        setVideoUrl(null)
+        setUploadStatus(msg || 'Inference failed')
+        setStatusClass('va-error')
+      }
+
+      function applyResult(j) {
+        const tl = j.timeline && (Array.isArray(j.timeline?.valence_pred) || Array.isArray(j.timeline?.times_pred)) ? j.timeline : null
+        setUploadStatus('Done. Showing V/A for: ' + file.name)
+        setStatusClass('va-ok')
+        setDuration(j.duration_sec ?? 1)
+        setVideoUrl(base + (j.video_url || ''))
+        setTimelineData(tl)
+        const id = (j.video_url || '').replace(/^\/uploads\//, '').replace(/\.mp4$/i, '')
+        setVaUploadId(id ? 'va_' + id : 'va_upload')
+        const avgV = Array.isArray(tl?.valence_pred) && tl.valence_pred.length ? tl.valence_pred.reduce((a, b) => a + b, 0) / tl.valence_pred.length : null
+        const avgA = Array.isArray(tl?.arousal_pred) && tl.arousal_pred.length ? tl.arousal_pred.reduce((a, b) => a + b, 0) / tl.arousal_pred.length : null
+        onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name })
+      }
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -209,28 +232,20 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
           if (!line.trim()) continue
           try {
             const j = JSON.parse(line)
-            if (j.type === 'progress') setUploadStatus(j.message || '…')
-            else if (j.type === 'result') {
+            if (j.type === 'progress') {
+              setUploadStatus(j.message || '…')
+            } else if (j.type === 'result') {
               gotResultOrError = true
-              const tl = j.timeline && (Array.isArray(j.timeline.valence_pred) || Array.isArray(j.timeline.times_pred)) ? j.timeline : null
-              setUploadStatus('Done. Showing V/A for: ' + file.name)
-              setStatusClass('va-ok')
-              setDuration(j.duration_sec || 1)
-              setVideoUrl(base + (j.video_url || ''))
-              setTimelineData(tl)
-              const id = (j.video_url || '').replace(/^\/uploads\//, '').replace(/\.mp4$/i, '')
-              setVaUploadId(id ? 'va_' + id : 'va_upload')
-              const avgV = tl?.valence_pred?.length ? tl.valence_pred.reduce((a, b) => a + b, 0) / tl.valence_pred.length : null
-              const avgA = tl?.arousal_pred?.length ? tl.arousal_pred.reduce((a, b) => a + b, 0) / tl.arousal_pred.length : null
-              onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name })
+              try { applyResult(j) } catch (e) { showError('Result error: ' + (e?.message || String(e))) }
             } else if (j.type === 'error') {
-              gotResultOrError = true
-              setTimelineData(null)
-              setVideoUrl(null)
-              setUploadStatus(j.detail || 'Inference failed')
-              setStatusClass('va-error')
+              showError(j.detail || 'Inference failed')
             }
-          } catch (_) {}
+          } catch (parseErr) {
+            const trimmed = line.trim()
+            if (trimmed.length > 0 && (trimmed.includes('Error') || trimmed.includes('Exception') || trimmed.includes('Traceback'))) {
+              showError(trimmed.length > 200 ? trimmed.slice(0, 200) + '…' : trimmed)
+            }
+          }
         }
       }
       if (buffer.trim()) {
@@ -238,35 +253,27 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
           const j = JSON.parse(buffer)
           if (j.type === 'result') {
             gotResultOrError = true
-            const tl = j.timeline && (Array.isArray(j.timeline.valence_pred) || Array.isArray(j.timeline.times_pred)) ? j.timeline : null
-            setUploadStatus('Done. Showing V/A for: ' + file.name)
-            setStatusClass('va-ok')
-            setDuration(j.duration_sec || 1)
-            setVideoUrl(base + (j.video_url || ''))
-            setTimelineData(tl)
-            const id = (j.video_url || '').replace(/^\/uploads\//, '').replace(/\.mp4$/i, '')
-            setVaUploadId(id ? 'va_' + id : 'va_upload')
-            const avgV = tl?.valence_pred?.length ? tl.valence_pred.reduce((a, b) => a + b, 0) / tl.valence_pred.length : null
-            const avgA = tl?.arousal_pred?.length ? tl.arousal_pred.reduce((a, b) => a + b, 0) / tl.arousal_pred.length : null
-            onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name })
+            try { applyResult(j) } catch (e) { showError('Result error: ' + (e?.message || String(e))) }
           } else if (j.type === 'error') {
-            gotResultOrError = true
-            setTimelineData(null)
-            setVideoUrl(null)
-            setUploadStatus(j.detail || 'Inference failed')
-            setStatusClass('va-error')
+            showError(j.detail || 'Inference failed')
           }
-        } catch (_) {}
+        } catch (parseErr) {
+          const trimmed = buffer.trim()
+          if (trimmed.length > 0 && (trimmed.includes('Error') || trimmed.includes('Exception'))) {
+            showError(trimmed.length > 200 ? trimmed.slice(0, 200) + '…' : trimmed)
+          }
+        }
       }
       if (!gotResultOrError) {
-        setUploadStatus('No response from server. Check console or try again.')
-        setStatusClass('va-error')
+        showError('No response from server. The V/A server may have crashed—check its logs.')
       }
     } catch (err) {
+      setTimelineData(null)
+      setVideoUrl(null)
       const isNetworkError = err?.message === 'Failed to fetch' || err?.name === 'TypeError'
       setUploadStatus(isNetworkError
         ? 'Could not reach the V/A server. Run it locally (e.g. scripts\\run_va_server.bat on port 5000) or set VITE_VA_API_BASE.'
-        : 'Upload failed: ' + (err.message || err))
+        : 'Upload failed: ' + (err?.message || String(err)))
       setStatusClass('va-error')
     }
     e.target.value = ''
