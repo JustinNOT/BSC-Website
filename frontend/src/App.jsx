@@ -205,6 +205,7 @@ function App() {
 
   return (
     <div className="app">
+      <div className="front-page-hi" aria-hidden="true">hi</div>
       <header className="header">
         <h1>BSC Research</h1>
         <p className="tagline">BSC-VCM-MSA</p>

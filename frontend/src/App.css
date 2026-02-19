@@ -5,6 +5,18 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.front-page-hi {
+  position: fixed;
+  top: 0.5rem;
+  right: 0.5rem;
+  font-size: 3rem;
+  font-weight: 700;
+  color: #228be6;
+  z-index: 9999;
+  pointer-events: none;
 }
 
 .header {
