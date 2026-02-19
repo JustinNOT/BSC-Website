@@ -2,8 +2,9 @@ import { useState } from 'react'
 import './App.css'
 import VATimeline from './VATimeline'
 
-// In dev we use Vite proxy (''). In production set VITE_API_BASE to your backend URL if different origin.
-const API_BASE = import.meta.env.VITE_API_BASE ?? ''
+// In dev we use Vite proxy (''). In production, use env VITE_API_BASE or the default below (e.g. Railway backend).
+const DEFAULT_PRODUCTION_API = 'https://bsc-vcm-production.up.railway.app' // Replace with your Railway backend URL if different
+const API_BASE = import.meta.env.VITE_API_BASE ?? (import.meta.env.PROD ? DEFAULT_PRODUCTION_API : '')
 // V/A (valence/arousal) server runs separately on port 5000 by default.
 const VA_API_BASE = import.meta.env.VITE_VA_API_BASE ?? 'http://localhost:5000'
 
