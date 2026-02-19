@@ -156,30 +156,45 @@ def infer_va_from_video_path(video_path, model_path=None, use_tqdm=True, progres
     setattr(sys.modules.get("__main__", sys.modules[__name__]), "KNN_V_k20_A_k5", KNN_V_k20_A_k5)
     loaded = joblib.load(model_path)
     report("Predicting valence/arousal…")
+    pred = None
+    valence = None
+    arousal = None
     if isinstance(loaded, dict) and "model_vis" in loaded:
-        # Late fusion: viz only has visual, use model_vis + bias + R² calibration
+        # Late fusion / va_best_fused: visual branch only (no audio in this pipeline)
         model_vis = loaded["model_vis"]
         bias_V = loaded.get("bias_V", 0.0)
         bias_A_vis = loaded.get("bias_A_visual_only", loaded.get("bias_A", 0.0))
         pred = model_vis.predict(X)
-        valence = np.asarray(pred[:, 0], dtype=np.float64) + bias_V
-        arousal = np.asarray(pred[:, 1], dtype=np.float64) + bias_A_vis
+        pred = np.asarray(pred, dtype=np.float64)
+        if pred.ndim == 1:
+            pred = pred.reshape(-1, 2)
+        valence = pred[:, 0] + float(bias_V)
+        arousal = pred[:, 1] + float(bias_A_vis)
         if "scale_V_vis" in loaded and "shift_V_vis" in loaded:
-            valence = valence * loaded["scale_V_vis"] + loaded["shift_V_vis"]
+            valence = valence * float(loaded["scale_V_vis"]) + float(loaded["shift_V_vis"])
         if "scale_A_vis" in loaded and "shift_A_vis" in loaded:
-            arousal = arousal * loaded["scale_A_vis"] + loaded["shift_A_vis"]
+            arousal = arousal * float(loaded["scale_A_vis"]) + float(loaded["shift_A_vis"])
+        valence = np.asarray(valence, dtype=np.float64)
+        arousal = np.asarray(arousal, dtype=np.float64)
     elif isinstance(loaded, dict) and "model" in loaded:
         model = loaded["model"]
         bias_V = loaded.get("bias_V", 0.0)
         bias_A = loaded.get("bias_A", 0.0)
         pred = model.predict(X)
-        valence = pred[:, 0] + bias_V
-        arousal = pred[:, 1] + bias_A
+        pred = np.asarray(pred, dtype=np.float64)
+        if pred.ndim == 1:
+            pred = pred.reshape(-1, 2)
+        valence = pred[:, 0] + float(bias_V)
+        arousal = pred[:, 1] + float(bias_A)
     else:
         model = loaded
-        pred = model.predict(X)
+        pred = np.asarray(model.predict(X), dtype=np.float64)
+        if pred.ndim == 1:
+            pred = pred.reshape(-1, 2)
         valence = pred[:, 0]
         arousal = pred[:, 1]
+    if valence is None or arousal is None:
+        raise RuntimeError("Model prediction produced no valence/arousal")
     return {
         "times_sec": times_out.tolist(),
         "valence": valence.tolist(),

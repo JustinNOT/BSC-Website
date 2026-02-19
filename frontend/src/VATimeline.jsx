@@ -180,6 +180,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
     setUploadStatus('Uploading…')
     setStatusClass('va-loading')
     setTimelineData(null)
+    setVideoUrl(null)
     setStoreStatus(null)
     const form = new FormData()
     form.append('video', file)
@@ -197,6 +198,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
       const reader = r.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let gotResultOrError = false
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -209,18 +211,22 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
             const j = JSON.parse(line)
             if (j.type === 'progress') setUploadStatus(j.message || '…')
             else if (j.type === 'result') {
+              gotResultOrError = true
+              const tl = j.timeline && (Array.isArray(j.timeline.valence_pred) || Array.isArray(j.timeline.times_pred)) ? j.timeline : null
               setUploadStatus('Done. Showing V/A for: ' + file.name)
               setStatusClass('va-ok')
               setDuration(j.duration_sec || 1)
-              setVideoUrl(base + j.video_url)
-              setTimelineData(j.timeline)
+              setVideoUrl(base + (j.video_url || ''))
+              setTimelineData(tl)
               const id = (j.video_url || '').replace(/^\/uploads\//, '').replace(/\.mp4$/i, '')
               setVaUploadId(id ? 'va_' + id : 'va_upload')
-              const tl = j.timeline
               const avgV = tl?.valence_pred?.length ? tl.valence_pred.reduce((a, b) => a + b, 0) / tl.valence_pred.length : null
               const avgA = tl?.arousal_pred?.length ? tl.arousal_pred.reduce((a, b) => a + b, 0) / tl.arousal_pred.length : null
-              onMsaResult?.({ videoUrl: base + j.video_url, timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name })
+              onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name })
             } else if (j.type === 'error') {
+              gotResultOrError = true
+              setTimelineData(null)
+              setVideoUrl(null)
               setUploadStatus(j.detail || 'Inference failed')
               setStatusClass('va-error')
             }
@@ -231,19 +237,30 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
         try {
           const j = JSON.parse(buffer)
           if (j.type === 'result') {
+            gotResultOrError = true
+            const tl = j.timeline && (Array.isArray(j.timeline.valence_pred) || Array.isArray(j.timeline.times_pred)) ? j.timeline : null
             setUploadStatus('Done. Showing V/A for: ' + file.name)
             setStatusClass('va-ok')
             setDuration(j.duration_sec || 1)
-            setVideoUrl(base + j.video_url)
-            setTimelineData(j.timeline)
+            setVideoUrl(base + (j.video_url || ''))
+            setTimelineData(tl)
             const id = (j.video_url || '').replace(/^\/uploads\//, '').replace(/\.mp4$/i, '')
             setVaUploadId(id ? 'va_' + id : 'va_upload')
-            const tl = j.timeline
             const avgV = tl?.valence_pred?.length ? tl.valence_pred.reduce((a, b) => a + b, 0) / tl.valence_pred.length : null
             const avgA = tl?.arousal_pred?.length ? tl.arousal_pred.reduce((a, b) => a + b, 0) / tl.arousal_pred.length : null
-            onMsaResult?.({ videoUrl: base + j.video_url, timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name })
+            onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name })
+          } else if (j.type === 'error') {
+            gotResultOrError = true
+            setTimelineData(null)
+            setVideoUrl(null)
+            setUploadStatus(j.detail || 'Inference failed')
+            setStatusClass('va-error')
           }
         } catch (_) {}
+      }
+      if (!gotResultOrError) {
+        setUploadStatus('No response from server. Check console or try again.')
+        setStatusClass('va-error')
       }
     } catch (err) {
       const isNetworkError = err?.message === 'Failed to fetch' || err?.name === 'TypeError'
