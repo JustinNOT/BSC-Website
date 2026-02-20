@@ -17,7 +17,7 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState(null)
   const [storePassword, setStorePassword] = useState('')
-  const [view, setView] = useState('analyze') // 'analyze' | 'stored' | 'results'
+  const [view, setView] = useState('analyze') // 'analyze' | 'stored' | 'results' | 'msa'
   const [lastVcmResult, setLastVcmResult] = useState(null) // best/latest VCM result for Results tab
   const [lastMsaResult, setLastMsaResult] = useState(null) // best/latest MSA result for Results tab
   const [storedData, setStoredData] = useState(null) // { neutral: [...], sad: [...], ... }
@@ -261,6 +261,13 @@ function App() {
           >
             Results
           </button>
+          <button
+            type="button"
+            className={`nav-tab ${view === 'msa' ? 'active' : ''}`}
+            onClick={() => { setView('msa'); setError(null); setStorePassword(''); setDeletePassword(''); setDeleteTarget(null); }}
+          >
+            MSA
+          </button>
         </nav>
       </header>
 
@@ -401,75 +408,74 @@ function App() {
 
         {view === 'results' && (
           <section className="card results-tab-section">
-            <h2>Results — best VCM &amp; MSA</h2>
-            <p className="hint">Your latest analysis results from the Analyze tab. Run a new analysis or MSA upload to update these.</p>
-
-            <div className="results-blocks">
-              <div className="card results-block">
-                <h3>Latest VCM result</h3>
-                {lastVcmResult ? (
-                  <div className="video-summary">
-                    <h4>{lastVcmResult.title || `Video ${lastVcmResult.video_id}`}</h4>
-                    <a
-                      href={`https://www.youtube.com/watch?v=${lastVcmResult.video_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="video-link"
-                    >
-                      Watch on YouTube ↗
-                    </a>
-                    {lastVcmResult.video_emotion && (
-                      <p className="overall-emotion">
-                        Dominant: <strong>{lastVcmResult.stage2_emotion ?? lastVcmResult.video_emotion}</strong>
-                        {lastVcmResult.stage2_emotion_2 != null && lastVcmResult.stage2_emotion_2 !== '' && (
-                          <> · 2nd: <strong>{lastVcmResult.stage2_emotion_2}</strong></>
-                        )}
-                      </p>
-                    )}
-                    {lastVcmResult.emotion_percentages && (
-                      <ul className="percent-list">
-                        {Object.entries(lastVcmResult.emotion_percentages).map(([name, pct]) => (
-                          <li key={name} className={lastVcmResult.video_emotion === name ? 'percent-item prominent' : 'percent-item'}>
-                            <span className="emotion-name">{name}</span>
-                            <span className="emotion-pct">{pct}%</span>
-                            <span className="pct-track"><span className="pct-bar" style={{ width: `${pct}%` }} /></span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <p className="hint">Comments analyzed: {lastVcmResult.comment_count ?? 0}</p>
-                  </div>
-                ) : (
-                  <p className="hint">No VCM result yet. Analyze a YouTube video on the Analyze tab.</p>
-                )}
-              </div>
-
-              <div className="card results-block">
-                <h3>Latest MSA (continuous) result</h3>
-                {lastMsaResult ? (
-                  <div className="msa-section">
-                    <p className="hint">Video and valence/arousal timeline below. Upload more on the Analyze tab.</p>
-                    <button
-                      type="button"
-                      className="btn msa-popout-btn"
-                      onClick={() => {
-                        try {
-                          sessionStorage.setItem('msaPopoutData', JSON.stringify({ result: lastMsaResult, storeApiBase: API_BASE }))
-                          window.open(`${window.location.origin}${window.location.pathname}?popout=msa`, '_blank', 'width=960,height=900')
-                        } catch (e) {
-                          console.error(e)
-                        }
-                      }}
-                    >
-                      Pop out to new window
-                    </button>
-                    <VATimeline displayOnlyResult={lastMsaResult} storeApiBase={API_BASE} />
-                  </div>
-                ) : (
-                  <p className="hint">No MSA result yet. Upload an MP4 on the Analyze tab (MSA section); you’ll be brought here to view the video and timeline.</p>
-                )}
-              </div>
+            <h2>Results — VCM</h2>
+            <p className="hint">Your latest YouTube comment analysis. Run a new analysis on the Analyze tab to update.</p>
+            <div className="card results-block">
+              <h3>Latest VCM result</h3>
+              {lastVcmResult ? (
+                <div className="video-summary">
+                  <h4>{lastVcmResult.title || `Video ${lastVcmResult.video_id}`}</h4>
+                  <a
+                    href={`https://www.youtube.com/watch?v=${lastVcmResult.video_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="video-link"
+                  >
+                    Watch on YouTube ↗
+                  </a>
+                  {lastVcmResult.video_emotion && (
+                    <p className="overall-emotion">
+                      Dominant: <strong>{lastVcmResult.stage2_emotion ?? lastVcmResult.video_emotion}</strong>
+                      {lastVcmResult.stage2_emotion_2 != null && lastVcmResult.stage2_emotion_2 !== '' && (
+                        <> · 2nd: <strong>{lastVcmResult.stage2_emotion_2}</strong></>
+                      )}
+                    </p>
+                  )}
+                  {lastVcmResult.emotion_percentages && (
+                    <ul className="percent-list">
+                      {Object.entries(lastVcmResult.emotion_percentages).map(([name, pct]) => (
+                        <li key={name} className={lastVcmResult.video_emotion === name ? 'percent-item prominent' : 'percent-item'}>
+                          <span className="emotion-name">{name}</span>
+                          <span className="emotion-pct">{pct}%</span>
+                          <span className="pct-track"><span className="pct-bar" style={{ width: `${pct}%` }} /></span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="hint">Comments analyzed: {lastVcmResult.comment_count ?? 0}</p>
+                </div>
+              ) : (
+                <p className="hint">No VCM result yet. Analyze a YouTube video on the Analyze tab.</p>
+              )}
             </div>
+          </section>
+        )}
+
+        {view === 'msa' && (
+          <section className="card msa-tab-section">
+            <h2>MSA (continuous)</h2>
+            <p className="hint">Valence/arousal timeline from your latest MP4 upload. Upload more on the Analyze tab.</p>
+            {lastMsaResult ? (
+              <div className="msa-section">
+                <button
+                  type="button"
+                  className="btn msa-popout-btn"
+                  onClick={() => {
+                    try {
+                      sessionStorage.setItem('msaPopoutData', JSON.stringify({ result: lastMsaResult, storeApiBase: API_BASE }))
+                      window.open(`${window.location.origin}${window.location.pathname}?popout=msa`, '_blank', 'width=960,height=900')
+                    } catch (e) {
+                      console.error(e)
+                    }
+                  }}
+                >
+                  Pop out to new window
+                </button>
+                <VATimeline displayOnlyResult={lastMsaResult} storeApiBase={API_BASE} />
+              </div>
+            ) : (
+              <p className="hint">No MSA result yet. Upload an MP4 on the Analyze tab (MSA section); you’ll be brought here to view the video and timeline.</p>
+            )}
           </section>
         )}
 
@@ -606,7 +612,7 @@ function App() {
             storeApiBase={API_BASE}
             onMsaResult={(r) => {
               setLastMsaResult(r)
-              setView('results')
+              setView('msa')
             }}
           />
           <p className="hint msa-timing-hint">First run may take 1–2 minutes while the model loads; later runs are faster.</p>

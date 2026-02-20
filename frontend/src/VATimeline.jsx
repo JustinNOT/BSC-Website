@@ -65,7 +65,7 @@ const VA_QUADRANTS = [
   { key: 'low_v_low_a', label: 'Low V, Low A' },
 ]
 
-function VATimelineCharts({ timelineData, duration }) {
+function VATimelineCharts({ timelineData, duration, currentTime }) {
   const valenceCanvasRef = useRef(null)
   const arousalCanvasRef = useRef(null)
   const valenceChartRef = useRef(null)
@@ -116,15 +116,19 @@ function VATimelineCharts({ timelineData, duration }) {
       if (arousalChartRef.current) { arousalChartRef.current.destroy(); arousalChartRef.current = null }
     }
   }, [timelineData, duration])
+  const durationSec = duration > 0 ? duration : 1
+  const playheadPct = currentTime != null ? Math.max(0, Math.min(100, (currentTime / durationSec) * 100)) : null
   return (
     <>
       <div className="va-chart-label">Valence</div>
       <div className="va-chart-wrap">
         <canvas ref={valenceCanvasRef} />
+        {playheadPct != null && <div className="va-playhead" style={{ left: `${playheadPct}%` }} aria-hidden="true" />}
       </div>
       <div className="va-chart-label">Arousal</div>
       <div className="va-chart-wrap">
         <canvas ref={arousalCanvasRef} />
+        {playheadPct != null && <div className="va-playhead" style={{ left: `${playheadPct}%` }} aria-hidden="true" />}
       </div>
     </>
   )
@@ -134,10 +138,25 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
   const [storePassword, setStorePassword] = useState('')
   const [storeStatus, setStoreStatus] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const videoRef = useRef(null)
   const duration = result.duration_sec ?? 1
   const vaUploadId = result.vaUploadId ?? null
   const avgV = result.avgV ?? null
   const avgA = result.avgA ?? null
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const onTime = () => setCurrentTime(video.currentTime)
+    const onSeeked = () => setCurrentTime(video.currentTime)
+    video.addEventListener('timeupdate', onTime)
+    video.addEventListener('seeked', onSeeked)
+    return () => {
+      video.removeEventListener('timeupdate', onTime)
+      video.removeEventListener('seeked', onSeeked)
+    }
+  }, [result.videoUrl])
 
   async function handleStoreQuadrant(quadrantKey) {
     if (!storeApiBase || !vaUploadId || avgV == null || avgA == null) return
@@ -173,7 +192,7 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
 
   return (
     <div className="va-timeline-content va-timeline-display-only">
-      <video src={result.videoUrl} controls crossOrigin="anonymous" className="va-video" />
+      <video ref={videoRef} src={result.videoUrl} controls crossOrigin="anonymous" className="va-video" />
       {avgV != null && avgA != null && (
         <div className="va-average-row">
           <span className="va-average-label">Average V: {avgV.toFixed(3)}</span>
@@ -202,7 +221,7 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
           {storeStatus && <p className="hint va-store-status">{storeStatus}</p>}
         </>
       )}
-      <VATimelineCharts timelineData={result.timeline} duration={duration} />
+      <VATimelineCharts timelineData={result.timeline} duration={duration} currentTime={currentTime} />
     </div>
   )
 }
