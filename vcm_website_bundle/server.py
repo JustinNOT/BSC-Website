@@ -33,6 +33,34 @@ CKPT_DIR = BUNDLE_ROOT / "checkpoints"
 _inference_lock = threading.Lock()
 # Max video duration in seconds (avoids OOM on very long videos). Set VA_MAX_DURATION_SEC=0 to disable.
 MAX_VIDEO_DURATION_SEC = int(os.environ.get("VA_MAX_DURATION_SEC", "600"))  # default 10 min
+# Reject oversized uploads early (e.g. mobile can send huge files and cause OOM). Set VA_MAX_UPLOAD_MB=0 to use only MAX_CONTENT_LENGTH.
+MAX_UPLOAD_MB = int(os.environ.get("VA_MAX_UPLOAD_MB", "200"))
+
+
+def _reject_if_too_large():
+    """Return (response, status) if Content-Length exceeds MAX_UPLOAD_MB; else (None, None)."""
+    if MAX_UPLOAD_MB <= 0:
+        return None, None
+    cl = request.content_length
+    if cl is not None and cl > MAX_UPLOAD_MB * 1024 * 1024:
+        return jsonify({"error": "file_too_large", "detail": f"Video must be under {MAX_UPLOAD_MB} MB. Use a shorter clip or compress it."}), 413
+    return None, None
+
+
+def _allowed_ext_and_name(f):
+    """Return (ext, name) for saved file. Accepts .mp4/.mov by extension or by content-type (e.g. mobile may send generic filename)."""
+    filename = (f.filename or "").strip()
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+    if ext not in ("mp4", "mov"):
+        # Some mobile clients send wrong or empty filename; check file content type
+        ct = (f.content_type or "").lower()
+        if "quicktime" in ct or "video/x-mov" in ct:
+            ext = "mov"
+        elif "mp4" in ct or "video/mp4" in ct:
+            ext = "mp4"
+    if ext not in ("mp4", "mov"):
+        return None, None
+    return ext, f"{uuid.uuid4().hex}.{ext}"
 
 
 @app.after_request
@@ -47,16 +75,19 @@ def cors_headers(response):
 def api_upload():
     if request.method == "OPTIONS":
         return "", 204
+    resp, code = _reject_if_too_large()
+    if resp is not None:
+        return resp, code
     if "video" not in request.files and "file" not in request.files:
         return jsonify({"error": "no_file"}), 400
     f = request.files.get("video") or request.files.get("file")
-    if not f or f.filename == "":
+    if not f:
         return jsonify({"error": "no_file"}), 400
-    if not f.filename.lower().endswith(".mp4"):
-        return jsonify({"error": "not_mp4"}), 400
+    ext, name = _allowed_ext_and_name(f)
+    if ext is None:
+        return jsonify({"error": "not_video", "detail": "Please upload an MP4 or MOV file"}), 400
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    name = f"{uuid.uuid4().hex}.mp4"
     save_path = UPLOAD_DIR / name
     try:
         f.save(str(save_path))
@@ -155,16 +186,19 @@ def api_upload_stream():
     """Streaming upload: returns NDJSON with progress lines then result."""
     if request.method == "OPTIONS":
         return "", 204
+    resp, code = _reject_if_too_large()
+    if resp is not None:
+        return resp, code
     if "video" not in request.files and "file" not in request.files:
         return jsonify({"error": "no_file"}), 400
     f = request.files.get("video") or request.files.get("file")
-    if not f or f.filename == "":
+    if not f:
         return jsonify({"error": "no_file"}), 400
-    if not f.filename.lower().endswith(".mp4"):
-        return jsonify({"error": "not_mp4"}), 400
+    ext, name = _allowed_ext_and_name(f)
+    if ext is None:
+        return jsonify({"error": "not_video", "detail": "Please upload an MP4 or MOV file"}), 400
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    name = f"{uuid.uuid4().hex}.mp4"
     save_path = UPLOAD_DIR / name
     try:
         f.save(str(save_path))
@@ -187,9 +221,10 @@ def api_upload_stream():
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
     # attachment so "Download clip" triggers download instead of opening in player (cross-origin)
+    mimetype = "video/quicktime" if (filename or "").lower().endswith(".mov") else "video/mp4"
     return send_from_directory(
-        UPLOAD_DIR, filename, mimetype="video/mp4",
-        as_attachment=True, download_name=filename if filename.endswith(".mp4") else f"{filename}.mp4"
+        UPLOAD_DIR, filename, mimetype=mimetype,
+        as_attachment=True, download_name=filename
     )
 
 

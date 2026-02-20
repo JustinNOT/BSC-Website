@@ -383,7 +383,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
               await delay(2500)
               continue
             }
-            const msg = j.error === 'no_file' ? 'No file selected' : j.error === 'not_mp4' ? 'Please choose an MP4 file' : (j.detail || j.error)
+            const msg = j.error === 'no_file' ? 'No file selected' : (j.error === 'not_mp4' || j.error === 'not_video') ? 'Please choose an MP4 or MOV file' : j.error === 'file_too_large' ? (j.detail || 'File too large. Use a shorter clip or compress it.') : (j.detail || j.error)
             setUploadStatus(msg)
             setStatusClass('va-error')
             e.target.value = ''
@@ -430,7 +430,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
         setDuration(j.duration_sec ?? 1)
         setVideoUrl(base + (j.video_url || ''))
         setTimelineData(tl)
-        const id = (j.video_url || '').replace(/^\/uploads\//, '').replace(/\.mp4$/i, '')
+        const id = (j.video_url || '').replace(/^\/uploads\//, '').replace(/^\//, '').trim()
         setVaUploadId(id ? 'va_' + id : 'va_upload')
         const avgV = Array.isArray(tl?.valence_pred) && tl.valence_pred.length ? tl.valence_pred.reduce((a, b) => a + b, 0) / tl.valence_pred.length : null
         const avgA = Array.isArray(tl?.arousal_pred) && tl.arousal_pred.length ? tl.arousal_pred.reduce((a, b) => a + b, 0) / tl.arousal_pred.length : null
@@ -563,8 +563,8 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
   return (
     <div className="va-timeline-content">
       <div className="va-upload-wrap">
-        <label htmlFor="vaFileInput">Upload MP4</label>
-        <input type="file" id="vaFileInput" accept="video/mp4" onChange={handleFileChange} className="input" disabled={statusClass === 'va-loading'} />
+        <label htmlFor="vaFileInput">Upload MP4 or MOV</label>
+        <input type="file" id="vaFileInput" accept="video/mp4,video/quicktime,.mp4,.mov" onChange={handleFileChange} className="input" disabled={statusClass === 'va-loading'} />
         {statusClass === 'va-loading' && (
           <button type="button" className="btn va-stop-btn" onClick={handleStopUpload} aria-label="Stop upload">
             Stop

@@ -28,6 +28,7 @@ function App() {
   const [deletingId, setDeletingId] = useState(null) // video_id+stored_at_utc while delete in progress
   const [popoutMsaData, setPopoutMsaData] = useState(null) // when opening as ?popout=msa
 
+  // Restore MSA view from URL (?va=id or ?msa=id) so reopening the link shows the result
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('popout') === 'msa') {
@@ -36,6 +37,21 @@ function App() {
         if (raw) {
           const data = JSON.parse(raw)
           if (data?.result?.timeline && data?.result?.videoUrl) setPopoutMsaData(data)
+        }
+      } catch (_) {}
+      return
+    }
+    const vaId = params.get('va') || params.get('msa')
+    if (vaId) {
+      try {
+        const key = 'msaResult_' + (vaId.startsWith('va_') ? vaId : 'va_' + vaId)
+        const raw = sessionStorage.getItem(key) || sessionStorage.getItem('msaResult')
+        if (raw) {
+          const data = JSON.parse(raw)
+          if (data?.videoUrl) {
+            setLastMsaResult(data)
+            setView('msa')
+          }
         }
       } catch (_) {}
     }
@@ -296,9 +312,13 @@ function App() {
                     const isDeleteTarget = deleteTarget && deleteTarget.video_id === v.video_id && deleteTarget.stored_at_utc === v.stored_at_utc
                     const isDeleting = deletingId === `${v.video_id}-${v.stored_at_utc}`
                     const isMsaCategory = STORED_MSA.some(e => e.key === storedCategory)
+                    const suffix = String(v.video_id || '').replace(/^va_/, '')
+                    const hasExt = suffix.includes('.')
+                    const fileExt = hasExt ? suffix.slice(suffix.lastIndexOf('.')) : '.mp4'
                     const downloadUrl = isMsaCategory && v.video_id
-                      ? `${VA_API_BASE.replace(/\/$/, '')}/uploads/${String(v.video_id).replace(/^va_/, '')}.mp4`
+                      ? `${VA_API_BASE.replace(/\/$/, '')}/uploads/${hasExt ? suffix : suffix + '.mp4'}`
                       : null
+                    const downloadName = v.title ? `${v.title}${fileExt}` : (hasExt ? suffix : 'clip.mp4')
                     return (
                       <li key={`${v.video_id}-${v.stored_at_utc}-${i}`} className="stored-video-item">
                         {downloadUrl ? (
@@ -307,7 +327,7 @@ function App() {
                             {v.stored_at_utc && (
                               <span className="stored-meta"> · {v.stored_at_utc}</span>
                             )}
-                            <a href={downloadUrl} download={v.title ? `${v.title}.mp4` : 'clip.mp4'} className="btn btn-download-stored">
+                            <a href={downloadUrl} download={downloadName} className="btn btn-download-stored">
                               Download
                             </a>
                           </>
@@ -494,7 +514,7 @@ function App() {
                 <VATimeline displayOnlyResult={lastMsaResult} storeApiBase={API_BASE} />
               </div>
             ) : (
-              <p className="hint">No MSA result yet. Upload an MP4 on the Analyze tab (MSA section); you’ll be brought here to view the video and timeline.</p>
+              <p className="hint">No MSA result yet. Upload an MP4 or MOV on the Analyze tab (MSA section); you’ll be brought here to view the video and timeline.</p>
             )}
           </section>
         )}
@@ -626,7 +646,7 @@ function App() {
 
         <section className="card msa-section">
           <h2>MSA (continuous)</h2>
-          <p className="hint">Upload an MP4 for valence/arousal (V/A) timeline.</p>
+          <p className="hint">Upload an MP4 or MOV for valence/arousal (V/A) timeline.</p>
           <VATimeline
             apiBaseUrl={VA_API_BASE}
             storeApiBase={API_BASE}
@@ -635,6 +655,12 @@ function App() {
               setView('msa')
               try {
                 sessionStorage.setItem('msaPopoutData', JSON.stringify({ result: r, storeApiBase: API_BASE }))
+                const vaId = (r.vaUploadId || '').replace(/^va_/, '') || 'va_upload'
+                sessionStorage.setItem('msaResult', JSON.stringify(r))
+                if (r.vaUploadId) sessionStorage.setItem('msaResult_' + r.vaUploadId, JSON.stringify(r))
+                const url = new URL(window.location.href)
+                url.searchParams.set('va', vaId)
+                window.history.replaceState({}, '', url.pathname + '?' + url.searchParams.toString())
                 window.open(`${window.location.origin}${window.location.pathname}?popout=msa`, '_blank', 'width=960,height=900')
               } catch (e) {
                 console.error(e)
