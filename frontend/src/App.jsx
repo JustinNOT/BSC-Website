@@ -530,6 +530,31 @@ function App() {
                   >
                     Pop out to new window
                   </button>
+                  <button
+                    type="button"
+                    className="btn msa-clear-btn"
+                    onClick={() => {
+                      setLastMsaResult(null)
+                      try {
+                        sessionStorage.removeItem('msaResult')
+                        sessionStorage.removeItem('msaPopoutData')
+                        const keysToRemove = []
+                        for (let i = 0; i < sessionStorage.length; i++) {
+                          const k = sessionStorage.key(i)
+                          if (k && k.startsWith('msaResult_')) keysToRemove.push(k)
+                        }
+                        keysToRemove.forEach(k => sessionStorage.removeItem(k))
+                        const url = new URL(window.location.href)
+                        url.searchParams.delete('va')
+                        url.searchParams.delete('msa')
+                        window.history.replaceState({}, '', url.pathname + (url.search || ''))
+                      } catch (e) {
+                        console.error(e)
+                      }
+                    }}
+                  >
+                    Clear cached video
+                  </button>
                 </div>
                 <VATimeline displayOnlyResult={lastMsaResult} storeApiBase={API_BASE} storeClientId={getStoredClientId()} />
               </div>
