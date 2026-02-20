@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './App.css'
 import VATimeline from './VATimeline'
 
@@ -26,6 +26,21 @@ function App() {
   const [deleteTarget, setDeleteTarget] = useState(null) // { emotion, video_id, stored_at_utc } when user clicked Delete
   const [deletePassword, setDeletePassword] = useState('') // only used in the row that's in "confirm delete" mode
   const [deletingId, setDeletingId] = useState(null) // video_id+stored_at_utc while delete in progress
+  const [popoutMsaData, setPopoutMsaData] = useState(null) // when opening as ?popout=msa
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('popout') === 'msa') {
+      try {
+        const raw = sessionStorage.getItem('msaPopoutData')
+        if (raw) {
+          const data = JSON.parse(raw)
+          if (data?.result?.timeline && data?.result?.videoUrl) setPopoutMsaData(data)
+        }
+      } catch (_) {}
+    }
+  }, [])
+
   const STORED_VCM = [
     { key: 'neutral', label: 'Neutral' },
     { key: 'pleased', label: 'Pleased' },
@@ -201,6 +216,22 @@ function App() {
     } finally {
       setDeletingId(null)
     }
+  }
+
+  if (popoutMsaData) {
+    return (
+      <div className="app app-popout">
+        <header className="header">
+          <h1>MSA (continuous) — Pop out</h1>
+          <p className="tagline">Video &amp; valence/arousal timeline</p>
+        </header>
+        <main className="main">
+          <section className="card msa-section">
+            <VATimeline displayOnlyResult={popoutMsaData.result} storeApiBase={popoutMsaData.storeApiBase} />
+          </section>
+        </main>
+      </div>
+    )
   }
 
   return (
@@ -418,7 +449,21 @@ function App() {
                 {lastMsaResult ? (
                   <div className="msa-section">
                     <p className="hint">Video and valence/arousal timeline below. Upload more on the Analyze tab.</p>
-                    <VATimeline displayOnlyResult={lastMsaResult} />
+                    <button
+                      type="button"
+                      className="btn msa-popout-btn"
+                      onClick={() => {
+                        try {
+                          sessionStorage.setItem('msaPopoutData', JSON.stringify({ result: lastMsaResult, storeApiBase: API_BASE }))
+                          window.open(`${window.location.origin}${window.location.pathname}?popout=msa`, '_blank', 'width=960,height=900')
+                        } catch (e) {
+                          console.error(e)
+                        }
+                      }}
+                    >
+                      Pop out to new window
+                    </button>
+                    <VATimeline displayOnlyResult={lastMsaResult} storeApiBase={API_BASE} />
                   </div>
                 ) : (
                   <p className="hint">No MSA result yet. Upload an MP4 on the Analyze tab (MSA section); you’ll be brought here to view the video and timeline.</p>

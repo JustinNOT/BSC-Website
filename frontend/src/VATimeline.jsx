@@ -38,6 +38,15 @@ function yRangeForWindow(timesA, valuesA, timesB, valuesB, windowXMin, windowXMa
   return { min: mid - span / 2, max: mid + span / 2 }
 }
 
+function yRangeFromValues(values) {
+  if (!Array.isArray(values) || values.length === 0) return { min: -1, max: 1 }
+  const lo = Math.min(...values)
+  const hi = Math.max(...values)
+  const span = Math.max(Y_MIN_SPAN, (hi - lo) * (1 + Y_PADDING))
+  const mid = (lo + hi) / 2
+  return { min: mid - span / 2, max: mid + span / 2 }
+}
+
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
@@ -72,19 +81,34 @@ function VATimelineCharts({ timelineData, duration }) {
     const aCanvas = arousalCanvasRef.current
     if (!vCanvas || !aCanvas) return
     try {
-      const totalMax = Math.max(...(timesPred || [0]), duration || 1, 1)
-      const xMax = Math.max(WINDOW_SEC, totalMax)
+      const xMax = Math.max(1, duration || 1, ...(timesPred.length ? timesPred : [0]))
+      const vY = yRangeFromValues(valencePred)
+      const aY = yRangeFromValues(arousalPred)
       if (valenceChartRef.current) valenceChartRef.current.destroy()
       valenceChartRef.current = new Chart(vCanvas, {
         type: 'line',
         data: { datasets: [buildDataset('Model', timesPred, valencePred, '#ff922b')] },
-        options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: 0, max: xMax } } },
+        options: {
+          ...chartOptions,
+          scales: {
+            ...chartOptions.scales,
+            x: { ...chartOptions.scales.x, min: 0, max: xMax },
+            y: { ...chartOptions.scales.y, min: vY.min, max: vY.max },
+          },
+        },
       })
       if (arousalChartRef.current) arousalChartRef.current.destroy()
       arousalChartRef.current = new Chart(aCanvas, {
         type: 'line',
         data: { datasets: [buildDataset('Model', timesPred, arousalPred, '#ff922b')] },
-        options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: 0, max: xMax } } },
+        options: {
+          ...chartOptions,
+          scales: {
+            ...chartOptions.scales,
+            x: { ...chartOptions.scales.x, min: 0, max: xMax },
+            y: { ...chartOptions.scales.y, min: aY.min, max: aY.max },
+          },
+        },
       })
     } catch (err) { console.error('Chart error:', err) }
     return () => {
@@ -103,6 +127,83 @@ function VATimelineCharts({ timelineData, duration }) {
         <canvas ref={arousalCanvasRef} />
       </div>
     </>
+  )
+}
+
+function MSADisplayOnlyView({ result, storeApiBase }) {
+  const [storePassword, setStorePassword] = useState('')
+  const [storeStatus, setStoreStatus] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const duration = result.duration_sec ?? 1
+  const vaUploadId = result.vaUploadId ?? null
+  const avgV = result.avgV ?? null
+  const avgA = result.avgA ?? null
+
+  async function handleStoreQuadrant(quadrantKey) {
+    if (!storeApiBase || !vaUploadId || avgV == null || avgA == null) return
+    if (!storePassword.trim()) { setStoreStatus('Enter store password'); return }
+    setSaving(true)
+    setStoreStatus(null)
+    try {
+      const res = await fetch((storeApiBase || '').replace(/\/$/, '') + '/api/store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          store_password: storePassword,
+          video_id: vaUploadId,
+          title: 'VA upload',
+          store_under_emotion: quadrantKey,
+          va_average_valence: avgV,
+          va_average_arousal: avgA,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || res.statusText)
+      }
+      const data = await res.json()
+      setStoreStatus(`Stored under ${data.emotion_folder || quadrantKey}/${data.filename}`)
+      setStorePassword('')
+    } catch (err) {
+      setStoreStatus(err.message || 'Failed to store')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="va-timeline-content va-timeline-display-only">
+      <video src={result.videoUrl} controls crossOrigin="anonymous" className="va-video" />
+      {avgV != null && avgA != null && (
+        <div className="va-average-row">
+          <span className="va-average-label">Average V: {avgV.toFixed(3)}</span>
+          <span className="va-average-label">Average A: {avgA.toFixed(3)}</span>
+        </div>
+      )}
+      {storeApiBase && vaUploadId != null && avgV != null && avgA != null && (
+        <>
+          <div className="va-store-row">
+            <input
+              type="password"
+              placeholder="Store password"
+              value={storePassword}
+              onChange={(e) => setStorePassword(e.target.value)}
+              className="input store-password-input"
+              autoComplete="off"
+              disabled={saving}
+            />
+            <span className="va-store-buttons-label">Store under:</span>
+            {VA_QUADRANTS.map(({ key, label }) => (
+              <button key={key} type="button" className="btn store-btn" onClick={() => handleStoreQuadrant(key)} disabled={saving}>
+                {saving ? '…' : label}
+              </button>
+            ))}
+          </div>
+          {storeStatus && <p className="hint va-store-status">{storeStatus}</p>}
+        </>
+      )}
+      <VATimelineCharts timelineData={result.timeline} duration={duration} />
+    </div>
   )
 }
 
@@ -407,19 +508,13 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
   const isError = !isNeutral && statusClass === 'va-error'
   const statusCls = isNeutral ? '' : statusClass
 
-  // Display-only mode: show video + charts from a result (e.g. on Results tab)
+  // Display-only mode: show video + charts + store from a result (e.g. on Results tab or popout)
   if (displayOnlyResult?.timeline && displayOnlyResult?.videoUrl) {
     return (
-      <div className="va-timeline-content va-timeline-display-only">
-        <video src={displayOnlyResult.videoUrl} controls crossOrigin="anonymous" className="va-video" />
-        {displayOnlyResult.avgV != null && displayOnlyResult.avgA != null && (
-          <div className="va-average-row">
-            <span className="va-average-label">Average V: {displayOnlyResult.avgV.toFixed(3)}</span>
-            <span className="va-average-label">Average A: {displayOnlyResult.avgA.toFixed(3)}</span>
-          </div>
-        )}
-        <VATimelineCharts timelineData={displayOnlyResult.timeline} duration={displayOnlyResult.duration_sec ?? 1} />
-      </div>
+      <MSADisplayOnlyView
+        result={displayOnlyResult}
+        storeApiBase={storeApiBase}
+      />
     )
   }
 

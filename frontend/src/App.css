@@ -602,6 +602,15 @@
   background: rgba(255, 107, 107, 0.15);
 }
 
+.msa-section .msa-popout-btn {
+  margin-bottom: 0.75rem;
+}
+
+.app-popout .main {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
 .msa-section .va-upload-status {
   font-size: 0.9rem;
 }
