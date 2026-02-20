@@ -548,15 +548,9 @@ def store_video(request: Request, body: StoreRequest):
 
 @app.get("/api/stored")
 @limiter.limit(RATE_LIMIT_GENERAL)
-def list_stored(request: Request, client_id: str | None = None):
-    """List stored videos grouped by emotion, scoped to client_id when provided.
-    Returns { "neutral": [ { video_id, title, stored_at_utc } ], "sad": [...], ... }.
-    Only items whose stored client_id matches the query client_id are returned (no overlap between users).
-    """
-    client_id = (client_id or "").strip() or None
+def list_stored(request: Request):
+    """List all stored videos grouped by emotion. Same list for everyone with the URL (global)."""
     out = {}
-    if client_id is None:
-        return out  # no client_id: return empty so only the uploader sees their own list
     if not STORED_DIR.exists():
         return out
     for folder in sorted(STORED_DIR.iterdir()):
@@ -568,8 +562,6 @@ def list_stored(request: Request, client_id: str | None = None):
             try:
                 with path.open(encoding="utf-8") as f:
                     data = json.load(f)
-                if data.get("client_id") != client_id:
-                    continue
                 out[cat].append({
                     "video_id": data.get("video_id", ""),
                     "title": data.get("title", ""),
@@ -585,13 +577,12 @@ class DeleteStoredRequest(BaseModel):
     emotion: str
     video_id: str
     stored_at_utc: str
-    client_id: str | None = None  # must match file's client_id to delete (only owner can delete)
 
 
 @app.post("/api/stored/delete")
 @limiter.limit(RATE_LIMIT_GENERAL)
 def delete_stored(request: Request, body: DeleteStoredRequest):
-    """Delete one stored video. Requires delete password and matching client_id (only owner can delete)."""
+    """Delete one stored video. Requires delete password (anyone with it can delete)."""
     if body.delete_password != DELETE_PASSWORD:
         raise HTTPException(status_code=401, detail="Incorrect delete password")
     video_id = str(body.video_id or "").strip()
@@ -613,15 +604,6 @@ def delete_stored(request: Request, body: DeleteStoredRequest):
             status_code=404,
             detail=f"Stored video not found: {filename}",
         )
-    client_id = (body.client_id or "").strip() or None
-    if client_id is not None:
-        try:
-            with found_path.open(encoding="utf-8") as f:
-                data = json.load(f)
-            if data.get("client_id") != client_id:
-                raise HTTPException(status_code=403, detail="You can only delete your own stored videos.")
-        except (json.JSONDecodeError, OSError):
-            pass
     try:
         found_path.unlink()
     except OSError as e:
