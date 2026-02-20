@@ -302,21 +302,29 @@ function App() {
                     return (
                       <li key={`${v.video_id}-${v.stored_at_utc}-${i}`} className="stored-video-item">
                         {downloadUrl ? (
-                          <a href={downloadUrl} download={v.title ? `${v.title}.mp4` : 'clip.mp4'} className="stored-video-link">
-                            {v.title || v.video_id} — Download
-                          </a>
+                          <>
+                            <span className="stored-video-title">{v.title || v.video_id}</span>
+                            {v.stored_at_utc && (
+                              <span className="stored-meta"> · {v.stored_at_utc}</span>
+                            )}
+                            <a href={downloadUrl} download={v.title ? `${v.title}.mp4` : 'clip.mp4'} className="btn btn-download-stored">
+                              Download
+                            </a>
+                          </>
                         ) : (
-                          <a
-                            href={`https://www.youtube.com/watch?v=${v.video_id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="stored-video-link"
-                          >
-                            {v.title || v.video_id}
-                          </a>
-                        )}
-                        {v.stored_at_utc && (
-                          <span className="stored-meta"> · {v.stored_at_utc}</span>
+                          <>
+                            <a
+                              href={`https://www.youtube.com/watch?v=${v.video_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="stored-video-link"
+                            >
+                              {v.title || v.video_id}
+                            </a>
+                            {v.stored_at_utc && (
+                              <span className="stored-meta"> · {v.stored_at_utc}</span>
+                            )}
+                          </>
                         )}
                         {!isDeleteTarget ? (
                           <button
