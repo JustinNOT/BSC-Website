@@ -295,16 +295,26 @@ function App() {
                   {(storedData && storedData[storedCategory] ? storedData[storedCategory] : []).map((v, i) => {
                     const isDeleteTarget = deleteTarget && deleteTarget.video_id === v.video_id && deleteTarget.stored_at_utc === v.stored_at_utc
                     const isDeleting = deletingId === `${v.video_id}-${v.stored_at_utc}`
+                    const isMsaCategory = STORED_MSA.some(e => e.key === storedCategory)
+                    const downloadUrl = isMsaCategory && v.video_id
+                      ? `${VA_API_BASE.replace(/\/$/, '')}/uploads/${String(v.video_id).replace(/^va_/, '')}.mp4`
+                      : null
                     return (
                       <li key={`${v.video_id}-${v.stored_at_utc}-${i}`} className="stored-video-item">
-                        <a
-                          href={`https://www.youtube.com/watch?v=${v.video_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="stored-video-link"
-                        >
-                          {v.title || v.video_id}
-                        </a>
+                        {downloadUrl ? (
+                          <a href={downloadUrl} download={v.title ? `${v.title}.mp4` : 'clip.mp4'} className="stored-video-link">
+                            {v.title || v.video_id} — Download
+                          </a>
+                        ) : (
+                          <a
+                            href={`https://www.youtube.com/watch?v=${v.video_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="stored-video-link"
+                          >
+                            {v.title || v.video_id}
+                          </a>
+                        )}
                         {v.stored_at_utc && (
                           <span className="stored-meta"> · {v.stored_at_utc}</span>
                         )}
@@ -457,20 +467,29 @@ function App() {
             <p className="hint">Valence/arousal timeline from your latest MP4 upload. Upload more on the Analyze tab.</p>
             {lastMsaResult ? (
               <div className="msa-section">
-                <button
-                  type="button"
-                  className="btn msa-popout-btn"
-                  onClick={() => {
-                    try {
-                      sessionStorage.setItem('msaPopoutData', JSON.stringify({ result: lastMsaResult, storeApiBase: API_BASE }))
-                      window.open(`${window.location.origin}${window.location.pathname}?popout=msa`, '_blank', 'width=960,height=900')
-                    } catch (e) {
-                      console.error(e)
-                    }
-                  }}
-                >
-                  Pop out to new window
-                </button>
+                <div className="msa-actions-row">
+                  <a
+                    href={lastMsaResult.videoUrl}
+                    download={lastMsaResult.fileName || 'msa-clip.mp4'}
+                    className="btn msa-download-btn"
+                  >
+                    Download clip
+                  </a>
+                  <button
+                    type="button"
+                    className="btn msa-popout-btn"
+                    onClick={() => {
+                      try {
+                        sessionStorage.setItem('msaPopoutData', JSON.stringify({ result: lastMsaResult, storeApiBase: API_BASE }))
+                        window.open(`${window.location.origin}${window.location.pathname}?popout=msa`, '_blank', 'width=960,height=900')
+                      } catch (e) {
+                        console.error(e)
+                      }
+                    }}
+                  >
+                    Pop out to new window
+                  </button>
+                </div>
                 <VATimeline displayOnlyResult={lastMsaResult} storeApiBase={API_BASE} />
               </div>
             ) : (
@@ -613,6 +632,12 @@ function App() {
             onMsaResult={(r) => {
               setLastMsaResult(r)
               setView('msa')
+              try {
+                sessionStorage.setItem('msaPopoutData', JSON.stringify({ result: r, storeApiBase: API_BASE }))
+                window.open(`${window.location.origin}${window.location.pathname}?popout=msa`, '_blank', 'width=960,height=900')
+              } catch (e) {
+                console.error(e)
+              }
             }}
           />
           <p className="hint msa-timing-hint">First run may take 1–2 minutes while the model loads; later runs are faster.</p>

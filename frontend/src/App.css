@@ -602,8 +602,21 @@
   background: rgba(255, 107, 107, 0.15);
 }
 
-.msa-section .msa-popout-btn {
+.msa-section .msa-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   margin-bottom: 0.75rem;
+}
+.msa-section .msa-download-btn,
+.msa-section .msa-popout-btn {
+  margin: 0;
+}
+.msa-section .va-display-actions {
+  margin-bottom: 0.5rem;
+}
+.msa-section .va-download-btn {
+  margin: 0;
 }
 
 .app-popout .main {
