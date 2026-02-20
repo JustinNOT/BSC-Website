@@ -368,15 +368,38 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
     const form = new FormData()
     form.append('video', file)
     const base = (apiBaseUrl || '').replace(/\/$/, '')
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    const maxAttempts = 3
+    let r
     try {
-      const r = await fetch(base + '/api/upload-stream', { method: 'POST', body: form, signal })
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}))
-        const msg = j.error === 'no_file' ? 'No file selected' : j.error === 'not_mp4' ? 'Please choose an MP4 file' : (j.detail || j.error)
-        setUploadStatus(msg)
-        setStatusClass('va-error')
-        e.target.value = ''
-        return
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          r = await fetch(base + '/api/upload-stream', { method: 'POST', body: form, signal })
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}))
+            const isRetryable = r.status >= 500 && r.status < 600 && attempt < maxAttempts - 1
+            if (isRetryable) {
+              setUploadStatus('Server busy (model may be loading), retrying in a moment…')
+              await delay(2500)
+              continue
+            }
+            const msg = j.error === 'no_file' ? 'No file selected' : j.error === 'not_mp4' ? 'Please choose an MP4 file' : (j.detail || j.error)
+            setUploadStatus(msg)
+            setStatusClass('va-error')
+            e.target.value = ''
+            return
+          }
+          break
+        } catch (fetchErr) {
+          if (fetchErr?.name === 'AbortError') throw fetchErr
+          const isNetworkError = fetchErr?.message === 'Failed to fetch' || fetchErr?.name === 'TypeError'
+          if (isNetworkError && attempt < maxAttempts - 1) {
+            setUploadStatus('Connection issue, retrying in a moment…')
+            await delay(2500)
+            continue
+          }
+          throw fetchErr
+        }
       }
       const reader = r.body.getReader()
       const decoder = new TextDecoder()
