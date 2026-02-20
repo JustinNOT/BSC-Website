@@ -9,6 +9,8 @@ const DEFAULT_PRODUCTION_VA_API = 'https://cozy-achievement-production-8d99.up.r
 const VA_API_BASE = import.meta.env.VITE_VA_API_BASE ?? (import.meta.env.PROD ? DEFAULT_PRODUCTION_VA_API : 'http://localhost:5000')
 
 const STORED_CLIENT_ID_KEY = 'bsc_stored_client_id'
+const TITLE_BASE = 'BSC Research'
+
 function getStoredClientId() {
   try {
     let id = localStorage.getItem(STORED_CLIENT_ID_KEY)
@@ -20,6 +22,26 @@ function getStoredClientId() {
   } catch (_) {
     return null
   }
+}
+
+/** Normalize YouTube input to full watch URL (handles bare ID, youtu.be, etc.). */
+function normalizeYoutubeUrl(input) {
+  const s = (input || '').trim()
+  if (!s) return ''
+  const idMatch = s.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|^)([a-zA-Z0-9_-]{11})(?:\?|&|$|\/)/)
+  if (idMatch) return `https://www.youtube.com/watch?v=${idMatch[1]}`
+  if (/^[a-zA-Z0-9_-]{11}$/.test(s)) return `https://www.youtube.com/watch?v=${s}`
+  return s
+}
+
+/** Format stored_at_utc (e.g. 20250120T143022Z) for display. */
+function formatStoredTimestamp(utc) {
+  if (!utc || typeof utc !== 'string') return utc || ''
+  const m = utc.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/)
+  if (!m) return utc
+  const [, y, mon, d, h, min] = m
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${d} ${months[parseInt(mon, 10) - 1]} ${y}, ${h}:${min}`
 }
 
 function App() {
@@ -42,7 +64,7 @@ function App() {
   const [deletingId, setDeletingId] = useState(null) // video_id+stored_at_utc while delete in progress
   const [popoutMsaData, setPopoutMsaData] = useState(null) // when opening as ?popout=msa
 
-  // Restore MSA view from URL (?va=id or ?msa=id) so reopening the link shows the result
+  // Restore view from URL (?view=, ?va=/?msa= for MSA, ?popout=msa)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('popout') === 'msa') {
@@ -65,11 +87,26 @@ function App() {
           if (data?.videoUrl) {
             setLastMsaResult(data)
             setView('msa')
+            return
           }
         }
       } catch (_) {}
     }
+    const viewParam = params.get('view')
+    if (['analyze', 'stored', 'results', 'msa'].includes(viewParam)) setView(viewParam)
   }, [])
+
+  // Sync document title and URL with current view
+  useEffect(() => {
+    const titles = { analyze: 'Analyze', stored: 'Stored', results: 'Results', msa: 'MSA' }
+    document.title = `${titles[view] || 'Analyze'} – ${TITLE_BASE}`
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('view') !== view) {
+      url.searchParams.set('view', view)
+      const search = url.searchParams.toString()
+      window.history.replaceState({}, '', url.pathname + (search ? '?' + search : ''))
+    }
+  }, [view])
 
   const STORED_VCM = [
     { key: 'neutral', label: 'Neutral' },
@@ -88,7 +125,8 @@ function App() {
 
   async function handleAnalyze(e) {
     e.preventDefault()
-    if (!url.trim()) return
+    const normalized = normalizeYoutubeUrl(url)
+    if (!normalized) return
     setError(null)
     setResult(null)
     setProgress('')
@@ -97,7 +135,7 @@ function App() {
       const res = await fetch(`${API_BASE}/api/analyze-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ youtube_url: url.trim() }),
+        body: JSON.stringify({ youtube_url: normalized }),
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
@@ -275,9 +313,13 @@ function App() {
       <header className="header">
         <h1>BSC Research</h1>
         <p className="tagline">BSC-VCM-MSA</p>
-        <nav className="nav-tabs">
+        <nav className="nav-tabs" role="tablist" aria-label="Main sections">
           <button
             type="button"
+            id="tab-analyze"
+            role="tab"
+            aria-selected={view === 'analyze'}
+            aria-controls="panel-main"
             className={`nav-tab ${view === 'analyze' ? 'active' : ''}`}
             onClick={() => { setView('analyze'); setError(null); setStorePassword(''); setDeletePassword(''); setDeleteTarget(null); }}
           >
@@ -285,6 +327,10 @@ function App() {
           </button>
           <button
             type="button"
+            id="tab-stored"
+            role="tab"
+            aria-selected={view === 'stored'}
+            aria-controls="panel-main"
             className={`nav-tab ${view === 'stored' ? 'active' : ''}`}
             onClick={loadStored}
           >
@@ -292,6 +338,10 @@ function App() {
           </button>
           <button
             type="button"
+            id="tab-results"
+            role="tab"
+            aria-selected={view === 'results'}
+            aria-controls="panel-main"
             className={`nav-tab ${view === 'results' ? 'active' : ''}`}
             onClick={() => { setView('results'); setError(null); setStorePassword(''); setDeletePassword(''); setDeleteTarget(null); }}
           >
@@ -299,6 +349,10 @@ function App() {
           </button>
           <button
             type="button"
+            id="tab-msa"
+            role="tab"
+            aria-selected={view === 'msa'}
+            aria-controls="panel-main"
             className={`nav-tab ${view === 'msa' ? 'active' : ''}`}
             onClick={() => { setView('msa'); setError(null); setStorePassword(''); setDeletePassword(''); setDeleteTarget(null); }}
           >
@@ -307,7 +361,7 @@ function App() {
         </nav>
       </header>
 
-      <main className="main">
+      <main className="main" id="panel-main" role="tabpanel" aria-labelledby={`tab-${view}`}>
         {view === 'stored' && (
           <section className="card stored-section">
             <h2>Stored videos</h2>
@@ -315,7 +369,10 @@ function App() {
             {storedLoading ? (
               <p className="progress">Loading…</p>
             ) : storedData && Object.keys(storedData).length === 0 ? (
-              <p className="hint">No stored videos yet.</p>
+              <>
+                <p className="hint">No stored videos yet.</p>
+                <p className="hint stored-empty-hint">Analyze a video or run MSA, then use the store password to save results here.</p>
+              </>
             ) : storedCategory != null ? (
               <>
                 <button
@@ -326,7 +383,14 @@ function App() {
                   ← Back to categories
                 </button>
                 <h3 className="stored-category-title">{STORED_EMOTIONS.find(e => e.key === storedCategory)?.label ?? storedCategory}</h3>
-                {error && <p className="error">{error}</p>}
+                {error && (
+                  <p className="error" role="alert" aria-live="polite">
+                    {error}
+                    <button type="button" className="btn btn-inline-retry" onClick={() => { setError(null); loadStored(); }}>
+                      Retry
+                    </button>
+                  </p>
+                )}
                 <ul className="stored-video-list">
                   {(storedData && storedData[storedCategory] ? storedData[storedCategory] : []).map((v, i) => {
                     const isDeleteTarget = deleteTarget && deleteTarget.video_id === v.video_id && deleteTarget.stored_at_utc === v.stored_at_utc
@@ -345,7 +409,7 @@ function App() {
                           <>
                             <span className="stored-video-title">{v.title || v.video_id}</span>
                             {v.stored_at_utc && (
-                              <span className="stored-meta"> · {v.stored_at_utc}</span>
+                              <span className="stored-meta"> · {formatStoredTimestamp(v.stored_at_utc)}</span>
                             )}
                             <a href={downloadUrl} download={downloadName} className="btn btn-download-stored">
                               Download
@@ -362,7 +426,7 @@ function App() {
                               {v.title || v.video_id}
                             </a>
                             {v.stored_at_utc && (
-                              <span className="stored-meta"> · {v.stored_at_utc}</span>
+                              <span className="stored-meta"> · {formatStoredTimestamp(v.stored_at_utc)}</span>
                             )}
                           </>
                         )}
@@ -381,6 +445,9 @@ function App() {
                           </button>
                         ) : (
                           <span className="stored-delete-inline">
+                            <span className="stored-delete-confirm-text">
+                              Delete &quot;{v.title || v.video_id}&quot;?
+                            </span>
                             <input
                               type="password"
                               placeholder="Delete password"
@@ -439,7 +506,7 @@ function App() {
                         className="btn stored-emotion-btn"
                         onClick={() => setStoredCategory(key)}
                       >
-                        {label}
+                        {label} ({(storedData && storedData[key]) ? storedData[key].length : 0})
                       </button>
                     ))}
                   </div>
@@ -454,7 +521,7 @@ function App() {
                         className="btn stored-emotion-btn"
                         onClick={() => setStoredCategory(key)}
                       >
-                        {label}
+                        {label} ({(storedData && storedData[key]) ? storedData[key].length : 0})
                       </button>
                     ))}
                   </div>
@@ -585,7 +652,14 @@ function App() {
           {loading && (
             <p className="progress">{progress || 'Starting analysis…'}</p>
           )}
-          {error && <p className="error">{error}</p>}
+          {error && (
+            <p className="error" role="alert" aria-live="polite">
+              {error}
+              <button type="button" className="btn btn-inline-retry" onClick={() => { setError(null); handleAnalyze({ preventDefault: () => {} }); }}>
+                Retry
+              </button>
+            </p>
+          )}
         </section>
 
         {result && (
@@ -633,7 +707,7 @@ function App() {
                 )}
               </div>
               {saveStatus && (
-                <p className="hint store-status">{saveStatus}</p>
+                <p className="hint store-status store-status-success" role="status">{saveStatus}</p>
               )}
               {result.video_emotion != null || result.emotion_percentages || result.stage2_emotion ? (
                 <div className="final-emotion-box">
@@ -719,7 +793,9 @@ function App() {
         )}
       </main>
 
-      <footer className="footer" style={{ marginTop: '2rem', padding: '0.5rem' }} />
+      <footer className="footer">
+        BSC Research · VCM &amp; MSA
+      </footer>
     </div>
   )
 }
