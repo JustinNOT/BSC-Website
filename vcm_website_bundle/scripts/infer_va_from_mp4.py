@@ -7,9 +7,13 @@ Usage:
   python scripts/infer_va_from_mp4.py path/to/video.mp4 --out output.json
 
 Output: continuous valence/arousal per segment (segment center times in seconds).
+
+Speed: Set VA_TIME_STEP_SEC=2 for fewer steps (faster, lower temporal resolution).
+       Sequential frame loading and batched feature extraction are used by default.
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -22,14 +26,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from extract_continuous_features import load_window_frames, build_feature_extractor
+from extract_continuous_features import (
+    load_window_frames,
+    load_all_windows_sequential,
+    build_feature_extractor,
+    NUM_FRAMES,
+    IMG_SIZE,
+)
 from run_va_sklearn_models import KNN_V_k20_A_k5
 
 CKPT_DIR = ROOT / "checkpoints"
 SEGMENT_LEN = 64
 SEGMENT_HOP = 1   # one prediction per second (overlapping 64s windows)
-# One 512-d feature per time step; we sample video at 1 Hz (one step per second)
-TIME_STEP_SEC = 1.0
+# One 512-d feature per time step; we sample video at TIME_STEP_SEC (env VA_TIME_STEP_SEC, default 1.0)
+TIME_STEP_SEC = float(os.environ.get("VA_TIME_STEP_SEC", "1.0"))
+# Batch size for feature extraction (more = faster on GPU, higher memory)
+FEATURE_BATCH_SIZE = 16
 
 
 def get_video_duration_fps(video_path):
@@ -80,10 +92,8 @@ def infer_va_from_video_path(video_path, model_path=None, use_tqdm=True, progres
     times_sec = np.arange(0.0, duration, TIME_STEP_SEC)
     short_video = len(times_sec) < SEGMENT_LEN
     if short_video:
-        # Extract one feature per second; we'll build padded segments per second below
         iter_times = times_sec
     else:
-        # Pad to at least SEGMENT_LEN for sliding window
         if len(times_sec) < SEGMENT_LEN:
             extra = np.full(SEGMENT_LEN - len(times_sec), times_sec[-1] if len(times_sec) else 0.0)
             times_sec = np.concatenate([times_sec, extra])
@@ -92,28 +102,70 @@ def infer_va_from_video_path(video_path, model_path=None, use_tqdm=True, progres
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     extractor = build_feature_extractor(device)
     n_steps = len(iter_times)
-    _iter = tqdm(iter_times, desc="Extract features", leave=False) if use_tqdm else iter_times
-    features_list = []
-    for idx, t in enumerate(_iter):
-        if progress_callback and n_steps > 0 and (idx % max(1, n_steps // 10) == 0 or idx == n_steps - 1):
-            progress_callback(f"Extracting features… {idx + 1}/{n_steps}")
-        frames = load_window_frames(str(video_path), float(t), fps)
-        if frames is None:
-            if features_list:
-                features_list.append(features_list[-1].copy())
-            continue
-        frames = frames.unsqueeze(0).to(device)
-        B, T, C, H, W = frames.shape
-        frames = frames.view(B * T, C, H, W)
-        with torch.no_grad():
-            feats = extractor(frames)
-        feats = feats.view(B, T, -1).mean(dim=1).cpu().numpy().squeeze()
-        features_list.append(feats)
-    n_actual = len(features_list)
+
+    # Prefer sequential one-pass load (much faster than N seeks)
+    all_windows = load_all_windows_sequential(
+        video_path, iter_times, fps,
+        progress_callback=progress_callback if n_steps > 1 else None,
+    )
+    if all_windows is not None:
+        # Batched feature extraction: (n_steps, 16, 3, H, W) -> (n_steps, 512)
+        report("Extracting features (batched)…")
+        features_list = []
+        batch_size = FEATURE_BATCH_SIZE
+        with torch.inference_mode():
+            for start in range(0, n_steps, batch_size):
+                end = min(start + batch_size, n_steps)
+                if progress_callback and n_steps > 0:
+                    progress_callback(f"Extracting features… {end}/{n_steps}")
+                batch = all_windows[start:end]  # (batch, 16, 3, H, W)
+                B, T, C, H, W = batch.shape
+                batch = batch.to(device).view(B * T, C, H, W)
+                feats = extractor(batch)  # (B*T, 512, 1, 1)
+                feats = feats.view(B, T, -1).mean(dim=1).cpu().numpy()
+                features_list.append(feats)
+        features = np.concatenate(features_list, axis=0).astype(np.float64)
+        n_actual = len(features)
+    else:
+        # Fallback: reuse one VideoCapture, batch feature extraction
+        report("Extracting features…")
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            raise RuntimeError(f"Cannot open video: {video_path}")
+        features_list = []
+        last_frames = None
+        try:
+            with torch.inference_mode():
+                for idx in range(0, n_steps, FEATURE_BATCH_SIZE):
+                    batch_frames = []
+                    for j in range(min(FEATURE_BATCH_SIZE, n_steps - idx)):
+                        t = float(iter_times[idx + j])
+                        frames = load_window_frames(str(video_path), t, fps, cap=cap)
+                        if frames is None:
+                            frames = last_frames if last_frames is not None else torch.zeros(NUM_FRAMES, 3, IMG_SIZE, IMG_SIZE)
+                        else:
+                            last_frames = frames
+                        batch_frames.append(frames.unsqueeze(0) if frames.dim() == 4 else frames)
+                    if not batch_frames:
+                        continue
+                    batch = torch.cat(batch_frames, dim=0).to(device)
+                    B, T, C, H, W = batch.shape
+                    batch = batch.view(B * T, C, H, W)
+                    feats = extractor(batch)
+                    feats = feats.view(B, T, -1).mean(dim=1).cpu().numpy()
+                    features_list.append(feats)
+                    if progress_callback and n_steps > 0:
+                        progress_callback(f"Extracting features… {min(idx + FEATURE_BATCH_SIZE, n_steps)}/{n_steps}")
+        finally:
+            cap.release()
+        if not features_list:
+            raise RuntimeError("No features extracted from video")
+        features = np.concatenate(features_list, axis=0).astype(np.float64)
+        n_actual = len(features)
+
     if n_actual < 1:
         raise RuntimeError("No features extracted from video")
     report("Aggregating features…")
-    features = np.stack(features_list, axis=0).astype(np.float64)
 
     if short_video:
         # One prediction per second: build a 64-step padded segment for each second

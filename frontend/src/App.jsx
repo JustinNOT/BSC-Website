@@ -559,7 +559,7 @@ function App() {
               <div className="store-row">
                 <input
                   type="password"
-                  placeholder="Storing password"
+                  placeholder="Store password"
                   value={storePassword}
                   onChange={(e) => setStorePassword(e.target.value)}
                   className="input store-password-input"

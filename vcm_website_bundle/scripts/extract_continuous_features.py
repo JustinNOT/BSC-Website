@@ -11,6 +11,7 @@ Output: data/continuous_features/{movie_id}.pt
 import os
 import sys
 import re
+from collections import defaultdict
 from pathlib import Path
 
 import cv2
@@ -90,20 +91,33 @@ def find_movie_path(movie_id):
     return None
 
 
-def load_window_frames(video_path, t_sec, fps, num_frames=NUM_FRAMES, img_size=IMG_SIZE):
+def _normalize_frames_np(frames_np):
+    """Apply ImageNet norm to (N, 3, H, W) float32."""
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 3, 1, 1)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 3, 1, 1)
+    return (frames_np - mean) / std
+
+
+def load_window_frames(video_path, t_sec, fps, num_frames=NUM_FRAMES, img_size=IMG_SIZE, cap=None):
     """
-    Load num_frames around t_sec. Returns (N, 3, H, W) float32 [0,1].
+    Load num_frames around t_sec. Returns (N, 3, H, W) float32 normalized.
+    If cap is provided (cv2.VideoCapture), it is used and not released (caller must release).
     """
-    cap = cv2.VideoCapture(video_path)
+    own_cap = False
+    if cap is None:
+        cap = cv2.VideoCapture(video_path)
+        own_cap = True
     if not cap.isOpened():
+        if own_cap:
+            cap.release()
         return None
     frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
     if fps <= 0 or frame_count <= 0:
-        cap.release()
+        if own_cap:
+            cap.release()
         return None
 
     duration = frame_count / fps
-    half = (num_frames - 1) / 2.0
     t_start = max(0.0, t_sec - WINDOW_SEC / 2)
     t_end = min(duration, t_sec + WINDOW_SEC / 2)
     if t_end <= t_start:
@@ -122,7 +136,8 @@ def load_window_frames(video_path, t_sec, fps, num_frames=NUM_FRAMES, img_size=I
         frame = cv2.resize(frame, (img_size, img_size), interpolation=cv2.INTER_AREA)
         frame = frame.astype(np.float32) / 255.0
         frames.append(frame)
-    cap.release()
+    if own_cap:
+        cap.release()
 
     if len(frames) < num_frames:
         while len(frames) < num_frames and frames:
@@ -132,11 +147,74 @@ def load_window_frames(video_path, t_sec, fps, num_frames=NUM_FRAMES, img_size=I
 
     frames = np.stack(frames[:num_frames], axis=0)  # (N, H, W, 3)
     frames = np.transpose(frames, (0, 3, 1, 2))     # (N, 3, H, W)
-    # ImageNet normalization
-    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 3, 1, 1)
-    std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 3, 1, 1)
-    frames = (frames - mean) / std
+    frames = _normalize_frames_np(frames)
     return torch.from_numpy(frames).float()
+
+
+def load_all_windows_sequential(video_path, times_sec, fps, num_frames=NUM_FRAMES, img_size=IMG_SIZE,
+                                progress_callback=None):
+    """
+    Load all windows in one sequential pass (no seeking). Much faster for long videos.
+    times_sec: array of center times for each window.
+    Returns (n_windows, num_frames, 3, img_size, img_size) tensor, or None on failure.
+    """
+    video_path = str(video_path)
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    if fps <= 0 or frame_count <= 0:
+        cap.release()
+        return None
+    duration = frame_count / fps
+    n_steps = len(times_sec)
+
+    # For each window w, 16 target times; need[frame_idx] = [(w, s), ...]
+    need = defaultdict(list)
+    for w, t_sec in enumerate(times_sec):
+        t_start = max(0.0, t_sec - WINDOW_SEC / 2)
+        t_end = min(duration, t_sec + WINDOW_SEC / 2)
+        if t_end <= t_start:
+            t_end = min(duration, t_start + 0.5)
+        slot_times = np.linspace(t_start, t_end, num_frames, endpoint=True)
+        for s, t in enumerate(slot_times):
+            frame_idx = int(round(t * fps))
+            frame_idx = max(0, min(frame_idx, int(frame_count) - 1))
+            need[frame_idx].append((w, s))
+
+    # Preallocate: frames per (w, s) as (H, W, 3) float [0,1]
+    windows = [[None] * num_frames for _ in range(n_steps)]
+    total_frames = int(frame_count)
+    last_frame = None
+    report_interval = max(1, total_frames // 20)
+
+    for frame_idx in range(total_frames):
+        if progress_callback and frame_idx > 0 and frame_idx % report_interval == 0:
+            progress_callback(f"Reading video… {frame_idx}/{total_frames}")
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if frame_idx not in need:
+            continue
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = cv2.resize(frame, (img_size, img_size), interpolation=cv2.INTER_AREA)
+        frame = frame.astype(np.float32) / 255.0
+        last_frame = frame
+        for (w, s) in need[frame_idx]:
+            windows[w][s] = frame.copy()
+    cap.release()
+
+    # Fill missing slots (boundaries) with last or first frame
+    for w in range(n_steps):
+        for s in range(num_frames):
+            if windows[w][s] is None:
+                windows[w][s] = last_frame if last_frame is not None else np.zeros((img_size, img_size, 3), dtype=np.float32)
+
+    # Stack: (n_steps, num_frames, H, W, 3) -> (n_steps, num_frames, 3, H, W), normalize
+    arr = np.stack([[windows[w][s] for s in range(num_frames)] for w in range(n_steps)], axis=0)
+    arr = np.transpose(arr, (0, 1, 4, 2, 3))  # (n_steps, 16, 3, H, W)
+    arr = _normalize_frames_np(arr)  # broadcasts over first dim
+    return torch.from_numpy(arr).float()
 
 
 def build_feature_extractor(device):
