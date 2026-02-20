@@ -56,7 +56,57 @@ const VA_QUADRANTS = [
   { key: 'low_v_low_a', label: 'Low V, Low A' },
 ]
 
-export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
+function VATimelineCharts({ timelineData, duration }) {
+  const valenceCanvasRef = useRef(null)
+  const arousalCanvasRef = useRef(null)
+  const valenceChartRef = useRef(null)
+  const arousalChartRef = useRef(null)
+  useEffect(() => {
+    const data = timelineData
+    const timesPred = Array.isArray(data?.times_pred) ? data.times_pred : []
+    const valencePred = Array.isArray(data?.valence_pred) ? data.valence_pred : []
+    const arousalPred = Array.isArray(data?.arousal_pred) ? data.arousal_pred : []
+    const validLength = timesPred.length > 0 && timesPred.length === valencePred.length && valencePred.length === arousalPred.length
+    if (!data || !validLength) return
+    const vCanvas = valenceCanvasRef.current
+    const aCanvas = arousalCanvasRef.current
+    if (!vCanvas || !aCanvas) return
+    try {
+      const totalMax = Math.max(...(timesPred || [0]), duration || 1, 1)
+      const xMax = Math.max(WINDOW_SEC, totalMax)
+      if (valenceChartRef.current) valenceChartRef.current.destroy()
+      valenceChartRef.current = new Chart(vCanvas, {
+        type: 'line',
+        data: { datasets: [buildDataset('Model', timesPred, valencePred, '#ff922b')] },
+        options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: 0, max: xMax } } },
+      })
+      if (arousalChartRef.current) arousalChartRef.current.destroy()
+      arousalChartRef.current = new Chart(aCanvas, {
+        type: 'line',
+        data: { datasets: [buildDataset('Model', timesPred, arousalPred, '#ff922b')] },
+        options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: 0, max: xMax } } },
+      })
+    } catch (err) { console.error('Chart error:', err) }
+    return () => {
+      if (valenceChartRef.current) { valenceChartRef.current.destroy(); valenceChartRef.current = null }
+      if (arousalChartRef.current) { arousalChartRef.current.destroy(); arousalChartRef.current = null }
+    }
+  }, [timelineData, duration])
+  return (
+    <>
+      <div className="va-chart-label">Valence</div>
+      <div className="va-chart-wrap">
+        <canvas ref={valenceCanvasRef} />
+      </div>
+      <div className="va-chart-label">Arousal</div>
+      <div className="va-chart-wrap">
+        <canvas ref={arousalCanvasRef} />
+      </div>
+    </>
+  )
+}
+
+export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, displayOnlyResult }) {
   const [uploadStatus, setUploadStatus] = useState('')
   const [statusClass, setStatusClass] = useState('')
   const [timelineData, setTimelineData] = useState(null)
@@ -76,6 +126,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
   const arousalChartRef = useRef(null)
   const videoRef = useRef(null)
   const lastWindowUpdateRef = useRef(0)
+  const abortControllerRef = useRef(null)
 
   const setTimeWindow = useCallback((t) => {
     const dur = duration > 0 ? duration : (timelineData ? Math.max(...(timelineData.times_pred || [0]), 1) : 1)
@@ -186,6 +237,9 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
   async function handleFileChange(e) {
     const file = e.target.files?.[0]
     if (!file) return
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    const signal = abortControllerRef.current.signal
     setUploadStatus('Uploading…')
     setStatusClass('va-loading')
     setTimelineData(null)
@@ -195,7 +249,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
     form.append('video', file)
     const base = (apiBaseUrl || '').replace(/\/$/, '')
     try {
-      const r = await fetch(base + '/api/upload-stream', { method: 'POST', body: form })
+      const r = await fetch(base + '/api/upload-stream', { method: 'POST', body: form, signal })
       if (!r.ok) {
         const j = await r.json().catch(() => ({}))
         const msg = j.error === 'no_file' ? 'No file selected' : j.error === 'not_mp4' ? 'Please choose an MP4 file' : (j.detail || j.error)
@@ -237,7 +291,8 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
         setVaUploadId(id ? 'va_' + id : 'va_upload')
         const avgV = Array.isArray(tl?.valence_pred) && tl.valence_pred.length ? tl.valence_pred.reduce((a, b) => a + b, 0) / tl.valence_pred.length : null
         const avgA = Array.isArray(tl?.arousal_pred) && tl.arousal_pred.length ? tl.arousal_pred.reduce((a, b) => a + b, 0) / tl.arousal_pred.length : null
-        onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name })
+        const uploadId = id ? 'va_' + id : 'va_upload'
+        onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name, vaUploadId: uploadId })
       }
 
       while (true) {
@@ -288,13 +343,23 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
     } catch (err) {
       setTimelineData(null)
       setVideoUrl(null)
-      const isNetworkError = err?.message === 'Failed to fetch' || err?.name === 'TypeError'
-      setUploadStatus(isNetworkError
-        ? 'Could not reach the V/A server. Run it locally (e.g. scripts\\run_va_server.bat on port 5000) or set VITE_VA_API_BASE.'
-        : 'Upload failed: ' + (err?.message || String(err)))
-      setStatusClass('va-error')
+      if (err?.name === 'AbortError') {
+        setUploadStatus('Cancelled')
+        setStatusClass('va-error')
+      } else {
+        const isNetworkError = err?.message === 'Failed to fetch' || err?.name === 'TypeError'
+        setUploadStatus(isNetworkError
+          ? 'Could not reach the V/A server. Run it locally (e.g. scripts\\run_va_server.bat on port 5000) or set VITE_VA_API_BASE.'
+          : 'Upload failed: ' + (err?.message || String(err)))
+        setStatusClass('va-error')
+      }
     }
     e.target.value = ''
+    abortControllerRef.current = null
+  }
+
+  function handleStopUpload() {
+    abortControllerRef.current?.abort()
   }
 
   const vp = timelineData?.valence_pred
@@ -342,11 +407,32 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult }) {
   const isError = !isNeutral && statusClass === 'va-error'
   const statusCls = isNeutral ? '' : statusClass
 
+  // Display-only mode: show video + charts from a result (e.g. on Results tab)
+  if (displayOnlyResult?.timeline && displayOnlyResult?.videoUrl) {
+    return (
+      <div className="va-timeline-content va-timeline-display-only">
+        <video src={displayOnlyResult.videoUrl} controls crossOrigin="anonymous" className="va-video" />
+        {displayOnlyResult.avgV != null && displayOnlyResult.avgA != null && (
+          <div className="va-average-row">
+            <span className="va-average-label">Average V: {displayOnlyResult.avgV.toFixed(3)}</span>
+            <span className="va-average-label">Average A: {displayOnlyResult.avgA.toFixed(3)}</span>
+          </div>
+        )}
+        <VATimelineCharts timelineData={displayOnlyResult.timeline} duration={displayOnlyResult.duration_sec ?? 1} />
+      </div>
+    )
+  }
+
   return (
     <div className="va-timeline-content">
       <div className="va-upload-wrap">
         <label htmlFor="vaFileInput">Upload MP4</label>
-        <input type="file" id="vaFileInput" accept="video/mp4" onChange={handleFileChange} className="input" />
+        <input type="file" id="vaFileInput" accept="video/mp4" onChange={handleFileChange} className="input" disabled={statusClass === 'va-loading'} />
+        {statusClass === 'va-loading' && (
+          <button type="button" className="btn va-stop-btn" onClick={handleStopUpload} aria-label="Stop upload">
+            Stop
+          </button>
+        )}
         <span id="uploadStatus" className={`va-upload-status ${statusCls}`}>{displayStatus}</span>
       </div>
       <div

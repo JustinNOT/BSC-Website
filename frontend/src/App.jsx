@@ -30,6 +30,7 @@ function App() {
     { key: 'neutral', label: 'Neutral' },
     { key: 'pleased', label: 'Pleased' },
     { key: 'funny', label: 'Funny' },
+    { key: 'fear', label: 'Fear' },
     { key: 'sad', label: 'Sad' },
   ]
   const STORED_MSA = [
@@ -204,7 +205,7 @@ function App() {
 
   return (
     <div className="app">
-      <div className="front-page-hi" aria-hidden="true">2</div>
+      <div className="front-page-hi" aria-hidden="true">1</div>
       <header className="header">
         <h1>BSC Research</h1>
         <p className="tagline">BSC-VCM-MSA</p>
@@ -416,26 +417,12 @@ function App() {
               <div className="card results-block">
                 <h3>Latest MSA (continuous) result</h3>
                 {lastMsaResult ? (
-                  <div className="video-summary">
-                    <h4>{lastMsaResult.fileName ?? 'Uploaded video'}</h4>
-                    {lastMsaResult.videoUrl && (
-                      <a href={lastMsaResult.videoUrl} target="_blank" rel="noopener noreferrer" className="video-link">
-                        Open video ↗
-                      </a>
-                    )}
-                    {lastMsaResult.avgV != null && lastMsaResult.avgA != null && (
-                      <p className="overall-emotion">
-                        Average Valence: <strong>{lastMsaResult.avgV.toFixed(3)}</strong>
-                        {' · '}
-                        Average Arousal: <strong>{lastMsaResult.avgA.toFixed(3)}</strong>
-                      </p>
-                    )}
-                    {lastMsaResult.duration_sec != null && (
-                      <p className="hint">Duration: {lastMsaResult.duration_sec.toFixed(1)} s</p>
-                    )}
+                  <div className="msa-section">
+                    <p className="hint">Video and valence/arousal timeline below. Upload more on the Analyze tab.</p>
+                    <VATimeline displayOnlyResult={lastMsaResult} />
                   </div>
                 ) : (
-                  <p className="hint">No MSA result yet. Upload an MP4 on the Analyze tab (MSA section).</p>
+                  <p className="hint">No MSA result yet. Upload an MP4 on the Analyze tab (MSA section); you’ll be brought here to view the video and timeline.</p>
                 )}
               </div>
             </div>
@@ -570,7 +557,14 @@ function App() {
         <section className="card msa-section">
           <h2>MSA (continuous)</h2>
           <p className="hint">Upload an MP4 for valence/arousal (V/A) timeline.</p>
-          <VATimeline apiBaseUrl={VA_API_BASE} storeApiBase={API_BASE} onMsaResult={setLastMsaResult} />
+          <VATimeline
+            apiBaseUrl={VA_API_BASE}
+            storeApiBase={API_BASE}
+            onMsaResult={(r) => {
+              setLastMsaResult(r)
+              setView('results')
+            }}
+          />
           <p className="hint msa-timing-hint">First run may take 1–2 minutes while the model loads; later runs are faster.</p>
         </section>
         </>
@@ -578,7 +572,7 @@ function App() {
       </main>
 
       <footer className="footer" style={{ marginTop: '2rem', padding: '0.5rem' }}>
-        2
+        1
       </footer>
     </div>
   )

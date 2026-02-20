@@ -589,6 +589,19 @@
   font-size: 0.9rem;
 }
 
+.msa-section .va-stop-btn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+  background: transparent;
+  color: #ff6b6b;
+  border: 1px solid #ff6b6b;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.msa-section .va-stop-btn:hover {
+  background: rgba(255, 107, 107, 0.15);
+}
+
 .msa-section .va-upload-status {
   font-size: 0.9rem;
 }
