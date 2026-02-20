@@ -3,10 +3,9 @@ import './App.css'
 import VATimeline from './VATimeline'
 
 // In dev we use Vite proxy (''). In production, use env VITE_API_BASE or the default below (e.g. Railway backend).
-const DEFAULT_PRODUCTION_API = 'https://bsc-vcm-production.up.railway.app' // Replace with your Railway backend URL if different
+const DEFAULT_PRODUCTION_API = 'https://bsc-website-production.up.railway.app'
 const API_BASE = import.meta.env.VITE_API_BASE ?? (import.meta.env.PROD ? DEFAULT_PRODUCTION_API : '')
-// V/A (valence/arousal) server: localhost in dev; in production set VITE_VA_API_BASE or use default below (e.g. Railway).
-const DEFAULT_PRODUCTION_VA_API = 'https://bsc-vcm-va-production.up.railway.app' // Replace with your Railway V/A service URL if different
+const DEFAULT_PRODUCTION_VA_API = 'https://cozy-achievement-production-8d99.up.railway.app'
 const VA_API_BASE = import.meta.env.VITE_VA_API_BASE ?? (import.meta.env.PROD ? DEFAULT_PRODUCTION_VA_API : 'http://localhost:5000')
 
 function App() {
@@ -205,7 +204,7 @@ function App() {
 
   return (
     <div className="app">
-      <div className="front-page-hi" aria-hidden="true">1</div>
+      <div className="front-page-hi" aria-hidden="true">2</div>
       <header className="header">
         <h1>BSC Research</h1>
         <p className="tagline">BSC-VCM-MSA</p>
@@ -579,7 +578,7 @@ function App() {
       </main>
 
       <footer className="footer" style={{ marginTop: '2rem', padding: '0.5rem' }}>
-        1
+        2
       </footer>
     </div>
   )
