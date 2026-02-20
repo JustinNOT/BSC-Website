@@ -8,6 +8,20 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? (import.meta.env.PROD ? DEFAUL
 const DEFAULT_PRODUCTION_VA_API = 'https://cozy-achievement-production-8d99.up.railway.app'
 const VA_API_BASE = import.meta.env.VITE_VA_API_BASE ?? (import.meta.env.PROD ? DEFAULT_PRODUCTION_VA_API : 'http://localhost:5000')
 
+const STORED_CLIENT_ID_KEY = 'bsc_stored_client_id'
+function getStoredClientId() {
+  try {
+    let id = localStorage.getItem(STORED_CLIENT_ID_KEY)
+    if (!id) {
+      id = 'bsc_' + crypto.randomUUID()
+      localStorage.setItem(STORED_CLIENT_ID_KEY, id)
+    }
+    return id
+  } catch (_) {
+    return null
+  }
+}
+
 function App() {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
@@ -151,6 +165,7 @@ function App() {
         emotion_percentages: result.emotion_percentages,
         comment_count: result.comment_count,
         store_under_emotion: storeUnderEmotion ?? undefined,
+        client_id: getStoredClientId(),
       }
       const res = await fetch(`${API_BASE}/api/store`, {
         method: 'POST',
@@ -181,7 +196,9 @@ function App() {
     setStoredLoading(true)
     setStoredData(null)
     try {
-      const res = await fetch(`${API_BASE}/api/stored`)
+      const clientId = getStoredClientId()
+      const url = clientId ? `${API_BASE}/api/stored?client_id=${encodeURIComponent(clientId)}` : `${API_BASE}/api/stored`
+      const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to load stored videos')
       const data = await res.json()
       setStoredData(data)
@@ -209,6 +226,7 @@ function App() {
           emotion,
           video_id: videoId,
           stored_at_utc: storedAtUtc,
+          client_id: getStoredClientId(),
         }),
       })
       if (!res.ok) {
@@ -222,7 +240,9 @@ function App() {
       }
       setDeleteTarget(null)
       setDeletePassword('')
-      const listRes = await fetch(`${API_BASE}/api/stored`)
+      const clientId = getStoredClientId()
+      const listUrl = clientId ? `${API_BASE}/api/stored?client_id=${encodeURIComponent(clientId)}` : `${API_BASE}/api/stored`
+      const listRes = await fetch(listUrl)
       if (listRes.ok) {
         const data = await listRes.json()
         setStoredData(data)
@@ -243,7 +263,7 @@ function App() {
         </header>
         <main className="main">
           <section className="card msa-section">
-            <VATimeline displayOnlyResult={popoutMsaData.result} storeApiBase={popoutMsaData.storeApiBase} />
+            <VATimeline displayOnlyResult={popoutMsaData.result} storeApiBase={popoutMsaData.storeApiBase} storeClientId={getStoredClientId()} />
           </section>
         </main>
       </div>
@@ -511,7 +531,7 @@ function App() {
                     Pop out to new window
                   </button>
                 </div>
-                <VATimeline displayOnlyResult={lastMsaResult} storeApiBase={API_BASE} />
+                <VATimeline displayOnlyResult={lastMsaResult} storeApiBase={API_BASE} storeClientId={getStoredClientId()} />
               </div>
             ) : (
               <p className="hint">No MSA result yet. Upload an MP4 or MOV on the Analyze tab (MSA section); you’ll be brought here to view the video and timeline.</p>
@@ -650,6 +670,7 @@ function App() {
           <VATimeline
             apiBaseUrl={VA_API_BASE}
             storeApiBase={API_BASE}
+            storeClientId={getStoredClientId()}
             onMsaResult={(r) => {
               setLastMsaResult(r)
               setView('msa')

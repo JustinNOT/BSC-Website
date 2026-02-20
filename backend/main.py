@@ -421,6 +421,7 @@ class StoreRequest(BaseModel):
     store_under_emotion: str | None = None  # e.g. "sad" or "high_v_low_a" for VA quadrant
     va_average_valence: float | None = None
     va_average_arousal: float | None = None
+    client_id: str | None = None  # scopes stored items to this client (browser); list/delete filter by it
 
 
 @app.get("/")
@@ -516,6 +517,7 @@ def store_video(request: Request, body: StoreRequest):
     filename = f"{body.video_id}_{ts}.json"
     path = folder / filename
 
+    client_id = (body.client_id or "").strip() or None
     payload = {
         "stored_at_utc": ts,
         "video_id": body.video_id,
@@ -530,6 +532,7 @@ def store_video(request: Request, body: StoreRequest):
         "comment_count": body.comment_count,
         "va_average_valence": body.va_average_valence,
         "va_average_arousal": body.va_average_arousal,
+        "client_id": client_id,
     }
 
     with path.open("w", encoding="utf-8") as f:
@@ -545,11 +548,15 @@ def store_video(request: Request, body: StoreRequest):
 
 @app.get("/api/stored")
 @limiter.limit(RATE_LIMIT_GENERAL)
-def list_stored(request: Request):
-    """List all stored videos grouped by emotion category.
+def list_stored(request: Request, client_id: str | None = None):
+    """List stored videos grouped by emotion, scoped to client_id when provided.
     Returns { "neutral": [ { video_id, title, stored_at_utc } ], "sad": [...], ... }.
+    Only items whose stored client_id matches the query client_id are returned (no overlap between users).
     """
+    client_id = (client_id or "").strip() or None
     out = {}
+    if client_id is None:
+        return out  # no client_id: return empty so only the uploader sees their own list
     if not STORED_DIR.exists():
         return out
     for folder in sorted(STORED_DIR.iterdir()):
@@ -561,6 +568,8 @@ def list_stored(request: Request):
             try:
                 with path.open(encoding="utf-8") as f:
                     data = json.load(f)
+                if data.get("client_id") != client_id:
+                    continue
                 out[cat].append({
                     "video_id": data.get("video_id", ""),
                     "title": data.get("title", ""),
@@ -576,21 +585,20 @@ class DeleteStoredRequest(BaseModel):
     emotion: str
     video_id: str
     stored_at_utc: str
+    client_id: str | None = None  # must match file's client_id to delete (only owner can delete)
 
 
 @app.post("/api/stored/delete")
 @limiter.limit(RATE_LIMIT_GENERAL)
 def delete_stored(request: Request, body: DeleteStoredRequest):
-    """Delete one stored video. Requires delete password."""
+    """Delete one stored video. Requires delete password and matching client_id (only owner can delete)."""
     if body.delete_password != DELETE_PASSWORD:
         raise HTTPException(status_code=401, detail="Incorrect delete password")
     video_id = str(body.video_id or "").strip()
     stored_at_utc = str(body.stored_at_utc or "").strip()
     if not video_id or not stored_at_utc:
         raise HTTPException(status_code=400, detail="video_id and stored_at_utc required")
-    # Filename is always video_id + _ + stored_at_utc + .json
     filename = f"{video_id}_{stored_at_utc}.json"
-    # Find the file by scanning all emotion folders (avoids folder-name mismatch)
     found_path = None
     if STORED_DIR.exists():
         for folder in STORED_DIR.iterdir():
@@ -605,6 +613,15 @@ def delete_stored(request: Request, body: DeleteStoredRequest):
             status_code=404,
             detail=f"Stored video not found: {filename}",
         )
+    client_id = (body.client_id or "").strip() or None
+    if client_id is not None:
+        try:
+            with found_path.open(encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("client_id") != client_id:
+                raise HTTPException(status_code=403, detail="You can only delete your own stored videos.")
+        except (json.JSONDecodeError, OSError):
+            pass
     try:
         found_path.unlink()
     except OSError as e:

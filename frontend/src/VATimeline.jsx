@@ -134,7 +134,7 @@ function VATimelineCharts({ timelineData, duration, currentTime }) {
   )
 }
 
-function MSADisplayOnlyView({ result, storeApiBase }) {
+function MSADisplayOnlyView({ result, storeApiBase, storeClientId }) {
   const [storePassword, setStorePassword] = useState('')
   const [storeStatus, setStoreStatus] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -174,6 +174,7 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
           store_under_emotion: quadrantKey,
           va_average_valence: avgV,
           va_average_arousal: avgA,
+          client_id: storeClientId ?? undefined,
         }),
       })
       if (!res.ok) {
@@ -226,7 +227,7 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
   )
 }
 
-export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, displayOnlyResult }) {
+export default function VATimeline({ apiBaseUrl, storeApiBase, storeClientId, onMsaResult, displayOnlyResult }) {
   const [uploadStatus, setUploadStatus] = useState('')
   const [statusClass, setStatusClass] = useState('')
   const [timelineData, setTimelineData] = useState(null)
@@ -529,6 +530,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
           store_under_emotion: quadrantKey,
           va_average_valence: avgV,
           va_average_arousal: avgA,
+          client_id: storeClientId ?? undefined,
         }),
       })
       if (!res.ok) {
@@ -556,6 +558,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
       <MSADisplayOnlyView
         result={displayOnlyResult}
         storeApiBase={storeApiBase}
+        storeClientId={storeClientId}
       />
     )
   }
