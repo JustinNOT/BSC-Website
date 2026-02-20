@@ -476,13 +476,6 @@ function App() {
             {lastMsaResult ? (
               <div className="msa-section">
                 <div className="msa-actions-row">
-                  <a
-                    href={lastMsaResult.videoUrl}
-                    download={lastMsaResult.fileName || 'msa-clip.mp4'}
-                    className="btn msa-download-btn"
-                  >
-                    Download clip
-                  </a>
                   <button
                     type="button"
                     className="btn msa-popout-btn"

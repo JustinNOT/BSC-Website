@@ -192,11 +192,6 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
 
   return (
     <div className="va-timeline-content va-timeline-display-only">
-      <div className="va-display-actions">
-        <a href={result.videoUrl} download={result.fileName || 'msa-clip.mp4'} className="btn va-download-btn">
-          Download clip
-        </a>
-      </div>
       <video ref={videoRef} src={result.videoUrl} controls crossOrigin="anonymous" className="va-video" />
       {avgV != null && avgA != null && (
         <div className="va-average-row">
