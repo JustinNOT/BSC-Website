@@ -247,12 +247,18 @@ def infer_va_from_video_path(video_path, model_path=None, use_tqdm=True, progres
         arousal = pred[:, 1]
     if valence is None or arousal is None:
         raise RuntimeError("Model prediction produced no valence/arousal")
+    # Mean prediction confidence: 0-1, higher = more consistent predictions over time
+    std_v = float(np.std(valence))
+    std_a = float(np.std(arousal))
+    raw_conf = 1.0 / (1.0 + (std_v + std_a) / 2.0)
+    mean_prediction_confidence = float(np.clip(raw_conf, 0.0, 1.0))
     return {
         "times_sec": times_out.tolist(),
         "valence": valence.tolist(),
         "arousal": arousal.tolist(),
         "duration_sec": float(duration),
         "n_segments": len(times_out),
+        "mean_prediction_confidence": mean_prediction_confidence,
     }
 
 

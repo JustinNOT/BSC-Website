@@ -2,7 +2,7 @@
  * V/A (valence/arousal) timeline: upload MP4, show video and charts.
  * Requires the V/A server running (e.g. scripts/run_va_server.bat on port 5000).
  */
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, forwardRef } from 'react'
 import { Chart } from 'chart.js/auto'
 
 const WINDOW_SEC = 90
@@ -134,6 +134,34 @@ function VATimelineCharts({ timelineData, duration, currentTime }) {
   )
 }
 
+const VideoWithFallback = forwardRef(function VideoWithFallback({ src, className, ...props }, ref) {
+  const [effectiveSrc, setEffectiveSrc] = useState(src)
+  const [useBlob, setUseBlob] = useState(false)
+
+  useEffect(() => {
+    setEffectiveSrc(src)
+    setUseBlob(false)
+  }, [src])
+
+  async function handleError() {
+    if (useBlob || !src) return
+    try {
+      const r = await fetch(src, { mode: 'cors' })
+      if (!r.ok) return
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      setEffectiveSrc(url)
+      setUseBlob(true)
+    } catch (_) {}
+  }
+
+  useEffect(() => {
+    return () => { if (useBlob && effectiveSrc) URL.revokeObjectURL(effectiveSrc) }
+  }, [useBlob, effectiveSrc])
+
+  return <video ref={ref} src={effectiveSrc} onError={handleError} className={className} {...props} />
+})
+
 function MSADisplayOnlyView({ result, storeApiBase }) {
   const [storePassword, setStorePassword] = useState('')
   const [storeStatus, setStoreStatus] = useState(null)
@@ -144,6 +172,7 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
   const vaUploadId = result.vaUploadId ?? null
   const avgV = result.avgV ?? null
   const avgA = result.avgA ?? null
+  const meanConf = result.meanPredictionConfidence ?? null
 
   useEffect(() => {
     const video = videoRef.current
@@ -192,11 +221,14 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
 
   return (
     <div className="va-timeline-content va-timeline-display-only">
-      <video ref={videoRef} src={result.videoUrl} controls crossOrigin="anonymous" className="va-video" />
+      <VideoWithFallback ref={videoRef} src={result.videoUrl} controls crossOrigin="anonymous" className="va-video" preload="metadata" />
       {avgV != null && avgA != null && (
         <div className="va-average-row">
           <span className="va-average-label">Average V: {avgV.toFixed(3)}</span>
           <span className="va-average-label">Average A: {avgA.toFixed(3)}</span>
+          {meanConf != null && (
+            <span className="va-average-label">Confidence: {meanConf.toFixed(3)}</span>
+          )}
         </div>
       )}
       {storeApiBase && vaUploadId != null && avgV != null && avgA != null && (
@@ -420,7 +452,8 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
         const valencePred = Array.isArray(raw?.valence_pred) ? raw.valence_pred : []
         const arousalPred = Array.isArray(raw?.arousal_pred) ? raw.arousal_pred : []
         const valid = timesPred.length > 0 && timesPred.length === valencePred.length && valencePred.length === arousalPred.length
-        const tl = valid ? { ...raw, times_pred: timesPred, valence_pred: valencePred, arousal_pred: arousalPred } : null
+        const meanConf = typeof j.mean_prediction_confidence === 'number' ? j.mean_prediction_confidence : null
+        const tl = valid ? { ...raw, times_pred: timesPred, valence_pred: valencePred, arousal_pred: arousalPred, mean_prediction_confidence: meanConf } : null
         if (!tl) {
           showError('Server returned invalid timeline (missing or mismatched V/A data).')
           return
@@ -435,7 +468,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
         const avgV = Array.isArray(tl?.valence_pred) && tl.valence_pred.length ? tl.valence_pred.reduce((a, b) => a + b, 0) / tl.valence_pred.length : null
         const avgA = Array.isArray(tl?.arousal_pred) && tl.arousal_pred.length ? tl.arousal_pred.reduce((a, b) => a + b, 0) / tl.arousal_pred.length : null
         const uploadId = id ? 'va_' + id : 'va_upload'
-        onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, duration_sec: j.duration_sec, fileName: file.name, vaUploadId: uploadId })
+        onMsaResult?.({ videoUrl: base + (j.video_url || ''), timeline: tl, avgV, avgA, meanPredictionConfidence: meanConf, duration_sec: j.duration_sec, fileName: file.name, vaUploadId: uploadId })
       }
 
       while (true) {
@@ -580,7 +613,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
         {displayStatus}
       </div>
       {videoUrl && (
-        <video ref={videoRef} src={videoUrl} controls crossOrigin="anonymous" className="va-video" />
+        <VideoWithFallback ref={videoRef} src={videoUrl} controls crossOrigin="anonymous" className="va-video" preload="metadata" />
       )}
       {timelineData && (
         <>
@@ -588,6 +621,9 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
             <div className="va-average-row">
               <span className="va-average-label">Average V: {avgV.toFixed(3)}</span>
               <span className="va-average-label">Average A: {avgA.toFixed(3)}</span>
+              {timelineData?.mean_prediction_confidence != null && (
+                <span className="va-average-label">Confidence: {timelineData.mean_prediction_confidence.toFixed(3)}</span>
+              )}
             </div>
           )}
           <div className="va-store-row">

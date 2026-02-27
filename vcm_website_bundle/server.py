@@ -68,6 +68,7 @@ def cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Expose-Headers"] = "Content-Length, Accept-Ranges, Content-Range"
     return response
 
 
@@ -121,6 +122,7 @@ def api_upload():
         "video_url": f"/uploads/{name}",
         "duration_sec": result["duration_sec"],
         "n_segments": result["n_segments"],
+        "mean_prediction_confidence": result.get("mean_prediction_confidence"),
     })
 
 
@@ -152,7 +154,7 @@ def _stream_upload_gen(save_path, model_path, name):
                 "valence_pred": result["valence"],
                 "arousal_pred": result["arousal"],
             }
-            q.put(("result", {"timeline": timeline, "video_url": f"/uploads/{name}", "duration_sec": result["duration_sec"], "n_segments": result["n_segments"]}))
+            q.put(("result", {"timeline": timeline, "video_url": f"/uploads/{name}", "duration_sec": result["duration_sec"], "n_segments": result["n_segments"], "mean_prediction_confidence": result.get("mean_prediction_confidence")}))
         except Exception as e:
             if save_path.exists():
                 try:
@@ -220,16 +222,30 @@ def api_upload_stream():
 
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
-    # attachment so "Download clip" triggers download instead of opening in player (cross-origin)
+    # Serve inline so video element can display (not as attachment). Add headers for cross-origin playback.
     mimetype = "video/quicktime" if (filename or "").lower().endswith(".mov") else "video/mp4"
-    return send_from_directory(
-        UPLOAD_DIR, filename, mimetype=mimetype,
-        as_attachment=True, download_name=filename
-    )
+    resp = send_from_directory(UPLOAD_DIR, filename, mimetype=mimetype, as_attachment=False)
+    resp.headers["Accept-Ranges"] = "bytes"
+    resp.headers["Content-Disposition"] = "inline"
+    return resp
 
+
+def _warmup_resnet():
+    """Pre-download ResNet18 at startup so first inference doesn't trigger download during request."""
+    try:
+        import torch
+        from extract_continuous_features import build_feature_extractor
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        build_feature_extractor(device)
+        print("[VA] ResNet18 pre-loaded (warmup complete)", flush=True)
+    except Exception as e:
+        print(f"[VA] Warmup warning: {e}", flush=True)
+
+
+# Pre-load ResNet18 at import so first request doesn't download during inference
+_warmup_resnet()
 
 if __name__ == "__main__":
-    import os
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
