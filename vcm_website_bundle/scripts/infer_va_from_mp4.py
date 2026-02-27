@@ -167,42 +167,31 @@ def infer_va_from_video_path(video_path, model_path=None, use_tqdm=True, progres
         raise RuntimeError("No features extracted from video")
     report("Aggregating features…")
 
-    if short_video:
-        # One prediction per second: build a 64-step padded segment for each second
-        X_list = []
-        times_out = []
-        half = SEGMENT_LEN // 2  # 32 steps before center, 31 after (center at index 31)
-        for i in range(n_actual):
-            start_idx = max(0, i - half)
-            end_idx = min(n_actual, i + half + 1)
-            chunk = features[start_idx:end_idx]
-            left_pad = max(0, half - i)
-            right_pad = SEGMENT_LEN - left_pad - len(chunk)
-            right_pad = max(0, right_pad)
-            parts = []
-            if left_pad:
-                parts.append(np.tile(features[0:1], (left_pad, 1)))
-            parts.append(chunk)
-            if right_pad:
-                parts.append(np.tile(features[-1:], (right_pad, 1)))
-            seg = np.concatenate(parts, axis=0)[:SEGMENT_LEN]
-            if len(seg) < SEGMENT_LEN:
-                seg = np.concatenate([seg, np.tile(features[-1:], (SEGMENT_LEN - len(seg), 1))], axis=0)
-            X_list.append(seg.mean(axis=0))
-            times_out.append(i + 0.5)
-        X = np.array(X_list)
-        times_out = np.array(times_out, dtype=np.float64)
-    else:
-        n = len(features)
-        X_list = []
-        segment_starts = []
-        for start in range(0, n - SEGMENT_LEN + 1, SEGMENT_HOP):
-            end = start + SEGMENT_LEN
-            X_list.append(features[start:end].mean(axis=0))
-            segment_starts.append(start)
-        X = np.array(X_list)
-        segment_center_step = np.array(segment_starts, dtype=np.float64) + (SEGMENT_LEN - 1) / 2.0
-        times_out = segment_center_step * TIME_STEP_SEC
+    # One prediction per second from 0.5s: use padded segments for edges (short and long videos)
+    n = len(features)
+    X_list = []
+    times_out = []
+    half = SEGMENT_LEN // 2  # 32 steps before center, 31 after (center at index 31)
+    for i in range(n):
+        start_idx = max(0, i - half)
+        end_idx = min(n, i + half + 1)
+        chunk = features[start_idx:end_idx]
+        left_pad = max(0, half - i)
+        right_pad = SEGMENT_LEN - left_pad - len(chunk)
+        right_pad = max(0, right_pad)
+        parts = []
+        if left_pad:
+            parts.append(np.tile(features[0:1], (left_pad, 1)))
+        parts.append(chunk)
+        if right_pad:
+            parts.append(np.tile(features[-1:], (right_pad, 1)))
+        seg = np.concatenate(parts, axis=0)[:SEGMENT_LEN]
+        if len(seg) < SEGMENT_LEN:
+            seg = np.concatenate([seg, np.tile(features[-1:], (SEGMENT_LEN - len(seg), 1))], axis=0)
+        X_list.append(seg.mean(axis=0))
+        times_out.append(i + 0.5)
+    X = np.array(X_list)
+    times_out = np.array(times_out, dtype=np.float64)
 
     report("Loading model…")
     setattr(sys.modules.get("__main__", sys.modules[__name__]), "KNN_V_k20_A_k5", KNN_V_k20_A_k5)
