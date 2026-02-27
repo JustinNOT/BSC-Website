@@ -22,7 +22,7 @@ BUNDLE_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(BUNDLE_ROOT))
 sys.path.insert(0, str(BUNDLE_ROOT / "scripts"))
 
-from flask import Flask, jsonify, request, send_from_directory, Response
+from flask import Flask, jsonify, request, send_from_directory, send_file, Response
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
@@ -51,26 +51,39 @@ def _reject_if_too_large():
 VA_TRANSCODE_FOR_BROWSER = os.environ.get("VA_TRANSCODE_FOR_BROWSER", "1").lower() in ("1", "true", "yes")
 
 
+def _get_ffmpeg_path() -> str:
+    """Use imageio-ffmpeg's bundled ffmpeg so we don't rely on system install."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
 def _transcode_to_h264(src: Path, dest: Path) -> bool:
     """Transcode video to H.264 MP4 for browser playback (fixes black screen with HEVC/ProRes). Returns True on success."""
-    try:
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", str(src),
-                "-map", "0:v", "-map", "0:a?",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "128k",
-                "-movflags", "+faststart",
-                str(dest),
-            ],
-            capture_output=True,
-            timeout=600,
-            check=True,
-        )
-        return dest.is_file()
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
-        print(f"[VA] Transcode warning: {e}", flush=True)
-        return False
+    ffmpeg_exe = _get_ffmpeg_path()
+    cmds = [
+        [ffmpeg_exe, "-y", "-i", str(src),
+         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+         "-c:a", "aac", "-b:a", "128k",
+         "-movflags", "+faststart",
+         str(dest)],
+        [ffmpeg_exe, "-y", "-i", str(src),
+         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+         "-an", "-movflags", "+faststart",
+         str(dest)],
+    ]
+    for args in cmds:
+        try:
+            r = subprocess.run(args, capture_output=True, timeout=600)
+            if r.returncode == 0 and dest.is_file():
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            print(f"[VA] Transcode warning: {e}", flush=True)
+            return False
+    print("[VA] Transcode failed (tried with and without audio)", flush=True)
+    return False
 
 
 def _ensure_browser_playable(save_path: Path, name: str) -> str:
@@ -272,42 +285,14 @@ def serve_upload(filename):
         return jsonify({"error": "not_found"}), 404
     if not filepath.is_file():
         return jsonify({"error": "not_found"}), 404
-    file_size = filepath.stat().st_size
     mimetype = "video/quicktime" if (filename or "").lower().endswith(".mov") else "video/mp4"
-
-    # Parse Range header for partial content (required for video element playback)
-    range_header = request.headers.get("Range")
-    if not range_header or not range_header.startswith("bytes="):
-        # No range: send full file with Accept-Ranges so browser can request ranges later
-        resp = send_from_directory(UPLOAD_DIR, filename, mimetype=mimetype, as_attachment=False)
-        resp.headers["Accept-Ranges"] = "bytes"
-        resp.headers["Content-Disposition"] = "inline"
-        return resp
-
-    try:
-        range_str = range_header.replace("bytes=", "").strip()
-        parts = range_str.split("-")
-        start = int(parts[0]) if parts[0] else 0
-        end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
-    except (ValueError, IndexError):
-        return Response("Invalid Range header", status=400)
-
-    if start >= file_size or end >= file_size or start > end:
-        return Response("Range Not Satisfiable", status=416, headers={"Content-Range": f"bytes */{file_size}"})
-
-    chunk_size = end - start + 1
-    with open(filepath, "rb") as f:
-        f.seek(start)
-        chunk = f.read(chunk_size)
-
-    headers = {
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(chunk_size),
-        "Content-Type": mimetype,
-        "Content-Disposition": "inline",
-    }
-    return Response(chunk, status=206, headers=headers)
+    return send_file(
+        filepath,
+        mimetype=mimetype,
+        as_attachment=False,
+        download_name=filename,
+        conditional=True,
+    )
 
 
 def _warmup_resnet():
