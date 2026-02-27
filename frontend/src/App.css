@@ -693,9 +693,12 @@
 .msa-section .va-video {
   width: 100%;
   max-width: 720px;
+  min-height: 200px;
   margin-bottom: 1rem;
   border-radius: 4px;
   background: var(--surface2);
+  display: block;
+  object-fit: contain;
 }
 
 .msa-section .va-chart-label {

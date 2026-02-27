@@ -106,6 +106,7 @@ function App() {
     { key: 'low_v_high_a', label: 'Low V, High A' },
     { key: 'high_v_high_a', label: 'High V, High A' },
     { key: 'low_v_low_a', label: 'Low V, Low A' },
+    { key: 'not_classified', label: 'Not classified' },
   ]
   const STORED_EMOTIONS = [...STORED_VCM, ...STORED_MSA]
 

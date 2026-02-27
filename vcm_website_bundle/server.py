@@ -67,7 +67,7 @@ def _allowed_ext_and_name(f):
 def cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Range"
     response.headers["Access-Control-Expose-Headers"] = "Content-Length, Accept-Ranges, Content-Range"
     return response
 
@@ -220,9 +220,11 @@ def api_upload_stream():
     )
 
 
-@app.route("/uploads/<path:filename>")
+@app.route("/uploads/<path:filename>", methods=["GET", "OPTIONS"])
 def serve_upload(filename):
     """Serve video inline with Range request support for browser playback and seeking."""
+    if request.method == "OPTIONS":
+        return "", 204
     filepath = (UPLOAD_DIR / filename).resolve()
     try:
         filepath.relative_to(UPLOAD_DIR.resolve())

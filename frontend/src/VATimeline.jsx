@@ -63,13 +63,16 @@ const VA_QUADRANTS = [
   { key: 'low_v_high_a', label: 'Low V, High A' },
   { key: 'high_v_high_a', label: 'High V, High A' },
   { key: 'low_v_low_a', label: 'Low V, Low A' },
+  { key: 'not_classified', label: 'Not classified' },
 ]
 
-function VATimelineCharts({ timelineData, duration, currentTime }) {
+function VATimelineCharts({ timelineData, duration, currentTime, onSeekToTime }) {
   const valenceCanvasRef = useRef(null)
   const arousalCanvasRef = useRef(null)
   const valenceChartRef = useRef(null)
   const arousalChartRef = useRef(null)
+  const onSeekRef = useRef(onSeekToTime)
+  onSeekRef.current = onSeekToTime
   useEffect(() => {
     const data = timelineData
     const timesPred = Array.isArray(data?.times_pred) ? data.times_pred : []
@@ -80,16 +83,28 @@ function VATimelineCharts({ timelineData, duration, currentTime }) {
     const vCanvas = valenceCanvasRef.current
     const aCanvas = arousalCanvasRef.current
     if (!vCanvas || !aCanvas) return
+    const dur = Math.max(0.001, duration || 1)
+      const handleClick = (chart, evt) => {
+      if (!chart?.scales?.x) return
+      const x = evt?.x ?? evt?.native?.offsetX ?? 0
+      const xVal = chart.scales.x.getValueForPixel(x)
+      if (typeof xVal === 'number' && !Number.isNaN(xVal) && xVal >= 0 && xVal <= dur) {
+        onSeekRef.current?.(xVal)
+      }
+    }
     try {
-      const xMax = Math.max(1, duration || 1, ...(timesPred.length ? timesPred : [0]))
+      const xMax = Math.max(1, dur, ...(timesPred.length ? timesPred : [0]))
       const vY = yRangeFromValues(valencePred)
       const aY = yRangeFromValues(arousalPred)
+      const clickOpts = onSeekToTime ? { onClick: (e, els, c) => handleClick(c, e) } : {}
       if (valenceChartRef.current) valenceChartRef.current.destroy()
       valenceChartRef.current = new Chart(vCanvas, {
         type: 'line',
         data: { datasets: [buildDataset('Model', timesPred, valencePred, '#ff922b')] },
         options: {
           ...chartOptions,
+          ...clickOpts,
+          plugins: { ...chartOptions.plugins, tooltip: { callbacks: { title: (items) => items?.length ? `Time: ${(items[0]?.parsed?.x ?? 0).toFixed(1)}s` : '' } } },
           scales: {
             ...chartOptions.scales,
             x: { ...chartOptions.scales.x, min: 0, max: xMax },
@@ -103,6 +118,8 @@ function VATimelineCharts({ timelineData, duration, currentTime }) {
         data: { datasets: [buildDataset('Model', timesPred, arousalPred, '#ff922b')] },
         options: {
           ...chartOptions,
+          ...clickOpts,
+          plugins: { ...chartOptions.plugins, tooltip: { callbacks: { title: (items) => items?.length ? `Time: ${(items[0]?.parsed?.x ?? 0).toFixed(1)}s` : '' } } },
           scales: {
             ...chartOptions.scales,
             x: { ...chartOptions.scales.x, min: 0, max: xMax },
@@ -115,18 +132,18 @@ function VATimelineCharts({ timelineData, duration, currentTime }) {
       if (valenceChartRef.current) { valenceChartRef.current.destroy(); valenceChartRef.current = null }
       if (arousalChartRef.current) { arousalChartRef.current.destroy(); arousalChartRef.current = null }
     }
-  }, [timelineData, duration])
+  }, [timelineData, duration, onSeekToTime])
   const durationSec = duration > 0 ? duration : 1
   const playheadPct = currentTime != null ? Math.max(0, Math.min(100, (currentTime / durationSec) * 100)) : null
   return (
     <>
-      <div className="va-chart-label">Valence</div>
-      <div className="va-chart-wrap">
+      <div className="va-chart-label">Valence — click waveform to jump video</div>
+      <div className="va-chart-wrap va-chart-clickable" style={onSeekToTime ? { cursor: 'pointer' } : undefined}>
         <canvas ref={valenceCanvasRef} />
         {playheadPct != null && <div className="va-playhead" style={{ left: `${playheadPct}%` }} aria-hidden="true" />}
       </div>
-      <div className="va-chart-label">Arousal</div>
-      <div className="va-chart-wrap">
+      <div className="va-chart-label">Arousal — click waveform to jump video</div>
+      <div className="va-chart-wrap va-chart-clickable" style={onSeekToTime ? { cursor: 'pointer' } : undefined}>
         <canvas ref={arousalCanvasRef} />
         {playheadPct != null && <div className="va-playhead" style={{ left: `${playheadPct}%` }} aria-hidden="true" />}
       </div>
@@ -221,7 +238,7 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
 
   return (
     <div className="va-timeline-content va-timeline-display-only">
-      <VideoWithFallback ref={videoRef} src={result.videoUrl} controls crossOrigin="anonymous" className="va-video" preload="metadata" />
+      <VideoWithFallback ref={videoRef} src={result.videoUrl} controls playsInline crossOrigin="anonymous" className="va-video" preload="auto" />
       {avgV != null && avgA != null && (
         <div className="va-average-row">
           <span className="va-average-label">Average V: {avgV.toFixed(3)}</span>
@@ -253,7 +270,12 @@ function MSADisplayOnlyView({ result, storeApiBase }) {
           {storeStatus && <p className="hint va-store-status">{storeStatus}</p>}
         </>
       )}
-      <VATimelineCharts timelineData={result.timeline} duration={duration} currentTime={currentTime} />
+      <VATimelineCharts
+        timelineData={result.timeline}
+        duration={duration}
+        currentTime={currentTime}
+        onSeekToTime={(t) => { const v = videoRef.current; if (v) { v.currentTime = t; v.play().catch(() => {}) } }}
+      />
     </div>
   )
 }
@@ -333,6 +355,16 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
       const xMin = 0
       const xMax = Math.min(WINDOW_SEC, totalMax)
 
+      const handleChartClick = (chart, evt) => {
+        if (!chart?.scales?.x || !videoRef.current) return
+        const x = evt?.x ?? evt?.native?.offsetX ?? 0
+        const t = chart.scales.x.getValueForPixel(x)
+        if (typeof t === 'number' && !Number.isNaN(t) && t >= 0) {
+          videoRef.current.currentTime = Math.min(t, videoRef.current.duration || t)
+          videoRef.current.play().catch(() => {})
+          setTimeWindow(videoRef.current.currentTime)
+        }
+      }
       if (valenceChartRef.current) valenceChartRef.current.destroy()
       const valenceDatasets = []
       if (data.times_gt?.length) valenceDatasets.push(buildDataset('Ground truth', data.times_gt, data.valence_gt, '#4dabf7'))
@@ -340,7 +372,11 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
       valenceChartRef.current = new Chart(vCanvas, {
         type: 'line',
         data: { datasets: valenceDatasets },
-        options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: xMin, max: xMax } } },
+        options: {
+          ...chartOptions,
+          onClick: (e, els, c) => handleChartClick(c, e),
+          scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: xMin, max: xMax } },
+        },
       })
 
       if (arousalChartRef.current) arousalChartRef.current.destroy()
@@ -350,7 +386,11 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
       arousalChartRef.current = new Chart(aCanvas, {
         type: 'line',
         data: { datasets: arousalDatasets },
-        options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: xMin, max: xMax } } },
+        options: {
+          ...chartOptions,
+          onClick: (e, els, c) => handleChartClick(c, e),
+          scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, min: xMin, max: xMax } },
+        },
       })
 
       setTimeWindow(0)
@@ -613,7 +653,7 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
         {displayStatus}
       </div>
       {videoUrl && (
-        <VideoWithFallback ref={videoRef} src={videoUrl} controls crossOrigin="anonymous" className="va-video" preload="metadata" />
+        <VideoWithFallback ref={videoRef} src={videoUrl} controls playsInline crossOrigin="anonymous" className="va-video" preload="auto" />
       )}
       {timelineData && (
         <>
@@ -650,13 +690,13 @@ export default function VATimeline({ apiBaseUrl, storeApiBase, onMsaResult, disp
             ))}
           </div>
           {storeStatus && <p className="hint va-store-status">{storeStatus}</p>}
-          <div className="va-chart-label">Valence</div>
-          <div className="va-chart-wrap">
+          <div className="va-chart-label">Valence — click waveform to jump video</div>
+          <div className="va-chart-wrap" style={{ cursor: 'pointer' }}>
             <canvas ref={valenceCanvasRef} />
             <div ref={valencePlayheadRef} className="va-playhead" />
           </div>
-          <div className="va-chart-label">Arousal</div>
-          <div className="va-chart-wrap">
+          <div className="va-chart-label">Arousal — click waveform to jump video</div>
+          <div className="va-chart-wrap" style={{ cursor: 'pointer' }}>
             <canvas ref={arousalCanvasRef} />
             <div ref={arousalPlayheadRef} className="va-playhead" />
           </div>
